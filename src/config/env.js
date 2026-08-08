@@ -88,6 +88,9 @@ const env = Object.freeze({
   // codes and CSV exports). Defaults to the local API origin; override in
   // production with the real card domain. Optional so it never blocks boot.
   publicBaseUrl: optional('PUBLIC_BASE_URL', 'http://localhost:5000').replace(/\/+$/, ''),
+  cloudinaryCloudName: required('CLOUDINARY_CLOUD_NAME'),
+  cloudinaryApiKey: required('CLOUDINARY_API_KEY'),
+  cloudinaryApiSecret: required('CLOUDINARY_API_SECRET'),
   isProduction: process.env.NODE_ENV === 'production',
 });
 

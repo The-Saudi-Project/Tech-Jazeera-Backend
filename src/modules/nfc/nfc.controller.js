@@ -44,14 +44,14 @@ export async function deleteEmployee(req, res) {
 // Images (logo / photo). The image rides as multipart field `image`.
 export async function uploadCompanyLogo(req, res) {
   if (!req.file) throw new ApiError(400, 'Choose an image to upload.');
-  res.json(new ApiResponse('Logo updated.', await nfcService.setCompanyLogo(req.params.id, req.file.filename, actor(req))));
+  res.json(new ApiResponse('Logo updated.', await nfcService.setCompanyLogo(req.params.id, req.file.path, actor(req))));
 }
 export async function removeCompanyLogo(req, res) {
   res.json(new ApiResponse('Logo removed.', await nfcService.removeCompanyLogo(req.params.id, actor(req))));
 }
 export async function uploadEmployeePhoto(req, res) {
   if (!req.file) throw new ApiError(400, 'Choose an image to upload.');
-  res.json(new ApiResponse('Photo updated.', await nfcService.setEmployeePhoto(req.params.id, req.file.filename, actor(req))));
+  res.json(new ApiResponse('Photo updated.', await nfcService.setEmployeePhoto(req.params.id, req.file.path, actor(req))));
 }
 export async function removeEmployeePhoto(req, res) {
   res.json(new ApiResponse('Photo removed.', await nfcService.removeEmployeePhoto(req.params.id, actor(req))));

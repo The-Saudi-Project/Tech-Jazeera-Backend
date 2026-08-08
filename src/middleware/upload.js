@@ -1,21 +1,9 @@
 /**
  * File-upload middleware (Multer).
- *
- * Security posture:
- *  - TYPE: only an allowlist of MIME types is accepted; anything else is
- *    rejected before touching disk. We never trust the client's extension.
- *  - NAME: the stored filename is a random UUID + a safe extension derived
- *    from the (allowlisted) MIME type — so a malicious original name like
- *    `../../etc/passwd` or `x.php` can never influence the path or extension
- *    on disk. The original name is preserved only as metadata in the DB.
- *  - SIZE: capped, enforced by Multer, translated to a friendly 400.
- *
- * MulterError (size/field problems) is translated into our ApiError here so
- * the centralized error handler and the client see the standard envelope.
+ * Migrated to Cloudinary for persistent storage on Render.
  */
 import multer from 'multer';
-import crypto from 'node:crypto';
-import env from '../config/env.js';
+import { cloudinary, CloudinaryStorage } from '../config/cloudinary.js';
 import ApiError from '../utils/ApiError.js';
 
 /** MIME type → canonical extension. This map IS the allowlist. */
@@ -32,12 +20,11 @@ const ALLOWED_TYPES = {
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, env.uploadDir),
-  filename: (req, file, cb) => {
-    // Random name + extension derived from the trusted MIME map, NOT from the
-    // user-supplied original name.
-    cb(null, `${crypto.randomUUID()}${ALLOWED_TYPES[file.mimetype] ?? ''}`);
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'crm-documents',
+    resource_type: 'auto', // Important: allows non-image files like PDF, DOCX
   },
 });
 

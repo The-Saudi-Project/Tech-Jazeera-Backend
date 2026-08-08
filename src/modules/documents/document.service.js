@@ -34,7 +34,7 @@ function diskPath(fileName) {
 function versionFromFile(file, version, userId) {
   return {
     version,
-    fileName: file.filename,
+    fileName: file.path || file.filename, // Store Cloudinary URL (path) if available
     originalName: file.originalname,
     mimeType: file.mimetype,
     size: file.size,
@@ -139,8 +139,15 @@ export async function resolveFile(id, versionNumber) {
     : document.versions[document.versions.length - 1];
   if (!version) throw new ApiError(404, 'That version does not exist.');
 
-  const absolutePath = diskPath(version.fileName);
-  // Confirm the file is actually on disk before claiming success.
+  const fileUrl = version.fileName;
+  
+  // If it's a Cloudinary URL, we don't check local disk
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    return { fileUrl, mimeType: version.mimeType, originalName: version.originalName };
+  }
+
+  const absolutePath = diskPath(fileUrl);
+  // Confirm the file is actually on disk before claiming success (legacy local files).
   try {
     await fs.access(absolutePath);
   } catch {
@@ -156,7 +163,23 @@ export async function deleteDocument(id, actor) {
 
   // Best-effort file cleanup — a missing file must not block the DB delete.
   await Promise.all(
-    document.versions.map((v) => fs.unlink(diskPath(v.fileName)).catch(() => {}))
+    document.versions.map(async (v) => {
+      const fileUrl = v.fileName;
+      if (fileUrl.includes('res.cloudinary.com')) {
+        try {
+          const urlParts = fileUrl.split('/');
+          const folderAndFile = urlParts.slice(-2).join('/');
+          const publicId = folderAndFile.split('.')[0];
+          // We need cloudinary imported for this, but since it's just an API call, we'll import it at the top of the file.
+          const { cloudinary } = await import('../../config/cloudinary.js');
+          await cloudinary.uploader.destroy(publicId);
+        } catch (err) {
+          console.error(`Failed to delete document from Cloudinary: ${fileUrl}`, err);
+        }
+      } else {
+        await fs.unlink(diskPath(fileUrl)).catch(() => {});
+      }
+    })
   );
   await document.deleteOne();
 

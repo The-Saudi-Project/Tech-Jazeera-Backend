@@ -1,13 +1,11 @@
 /**
- * NFC image handling: upload middleware for logos/photos, and a public route to
- * serve them. Images live under UPLOAD_DIR/nfc with random names and are served
- * publicly (they appear on public tap pages anyway); the random uuid names make
- * them non-enumerable.
+ * NFC image handling: upload middleware for logos/photos.
+ * Migrated to Cloudinary for persistent storage on Render.
  */
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
+import { cloudinary, CloudinaryStorage } from '../../config/cloudinary.js';
 import env from '../../config/env.js';
 import ApiError from '../../utils/ApiError.js';
 
@@ -15,16 +13,18 @@ export const NFC_MEDIA_DIR = path.join(env.uploadDir, 'nfc');
 fs.mkdirSync(NFC_MEDIA_DIR, { recursive: true });
 
 const EXT = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/webp': '.webp',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
 };
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, NFC_MEDIA_DIR),
-  // Random name + extension from the trusted MIME map (never the user's name).
-  filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}${EXT[file.mimetype] ?? ''}`),
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'nfc-media',
+    allowed_formats: ['jpg', 'png', 'webp'],
+  },
 });
 
 function fileFilter(req, file, cb) {
@@ -47,9 +47,23 @@ export function uploadNfcImage(req, res, next) {
 }
 
 /** Best-effort delete of a stored media file (on replace/remove). */
-export function deleteNfcMedia(filename) {
+export async function deleteNfcMedia(filename) {
   if (!filename) return;
-  fs.unlink(path.join(NFC_MEDIA_DIR, path.basename(filename)), () => {});
+  
+  if (filename.includes('res.cloudinary.com')) {
+    try {
+      // Extract public_id from URL: .../upload/v1234/nfc-media/xyz.jpg -> nfc-media/xyz
+      const urlParts = filename.split('/');
+      const folderAndFile = urlParts.slice(-2).join('/');
+      const publicId = folderAndFile.split('.')[0];
+      await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      console.error(`Failed to delete image from Cloudinary: ${filename}`, err);
+    }
+  } else {
+    // Fallback for old local files (if any remain)
+    fs.unlink(path.join(NFC_MEDIA_DIR, path.basename(filename)), () => {});
+  }
 }
 
 /** GET /nfc-media/:filename — public, cached. Basename-guarded against traversal. */
@@ -61,9 +75,6 @@ export function serveNfcMedia(req, res) {
     {
       headers: {
         'Cache-Control': 'public, max-age=86400',
-        // These files are deliberately public — a person's photo is the tap
-        // page's og:image, which other origins must be able to render.
-        // helmet's app-wide default of `same-origin` would block that.
         'Cross-Origin-Resource-Policy': 'cross-origin',
       },
     },

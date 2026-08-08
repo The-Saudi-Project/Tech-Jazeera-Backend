@@ -43,13 +43,18 @@ export async function get(req, res) {
  * originalName travels in Content-Disposition for downloads.
  */
 export async function file(req, res) {
-  const { absolutePath, mimeType, originalName } = await documentService.resolveFile(
+  const fileData = await documentService.resolveFile(
     req.params.id,
     req.query.version
   );
-  res.setHeader('Content-Type', mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(originalName)}"`);
-  fs.createReadStream(absolutePath).pipe(res);
+
+  if (fileData.fileUrl) {
+    return res.redirect(fileData.fileUrl);
+  }
+
+  res.setHeader('Content-Type', fileData.mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileData.originalName)}"`);
+  fs.createReadStream(fileData.absolutePath).pipe(res);
 }
 
 /** DELETE /api/documents/:id — 200 → data: null (file(s) removed from disk) */
