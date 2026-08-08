@@ -88,8 +88,15 @@ export async function getCard(req, res) {
 export async function updateCard(req, res) {
   res.json(new ApiResponse('Card updated.', await nfcService.updateCard(req.params.id, req.body, actor(req))));
 }
+export async function deleteCard(req, res) {
+  await nfcService.deleteCard(req.params.id, actor(req));
+  res.json(new ApiResponse('Card deleted.'));
+}
 export async function assignCard(req, res) {
   res.json(new ApiResponse('Card assigned.', await nfcService.assignCard(req.params.id, req.body, actor(req))));
+}
+export async function assignCardToCompany(req, res) {
+  res.json(new ApiResponse('Card assigned to company inventory.', await nfcService.assignCardToCompany(req.params.id, req.body, actor(req))));
 }
 export async function unassignCard(req, res) {
   res.json(new ApiResponse('Card unassigned.', await nfcService.unassignCard(req.params.id, actor(req))));

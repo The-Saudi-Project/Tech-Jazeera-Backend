@@ -134,7 +134,7 @@ export async function deleteEmployee(id, actor) {
 
 // ---------------------------------------------------------------- Batches
 
-export async function generateBatch({ count, label, note }, actor) {
+export async function generateBatch({ count, label, note, company }, actor) {
   const batch = await NfcBatch.create({ label, note, count, createdBy: actor.userId });
   const tokens = generateTokens(count);
   // Guard the (astronomically unlikely) clash with an existing token.
@@ -146,9 +146,9 @@ export async function generateBatch({ count, label, note }, actor) {
       taken.add(tokens[i]);
     }
   }
-  const docs = tokens.map((token) => ({ token, batch: batch._id, status: 'unassigned' }));
+  const docs = tokens.map((token) => ({ token, batch: batch._id, company: company || null, status: 'unassigned' }));
   await NfcCard.insertMany(docs);
-  await logAudit({ user: actor.userId, action: 'nfc.batch.generate', targetType: 'NfcBatch', targetId: batch._id, meta: { count, label: label || '' }, ip: actor.ip });
+  await logAudit({ user: actor.userId, action: 'nfc.batch.generate', targetType: 'NfcBatch', targetId: batch._id, meta: { count, label: label || '', company: company || null }, ip: actor.ip });
   return { batch: batch.toObject(), cards: docs.map((d) => withUrl(d)) };
 }
 
@@ -220,6 +220,11 @@ export async function assignCard(id, { employee: employeeId }, actor) {
   const employee = await NfcEmployee.findById(employeeId).select('name company').lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
 
+  // Enforce company ownership: a card assigned to a company can only be given to an employee of that company.
+  if (card.company && card.company.toString() !== employee.company.toString()) {
+    throw new ApiError(400, 'This card belongs to a different company.');
+  }
+
   // Close any current holder, then assign the new one (reassign is one step).
   await NfcAssignment.updateMany({ card: id, unassignedAt: null }, { unassignedAt: new Date() });
   card.employee = employee._id;
@@ -229,6 +234,17 @@ export async function assignCard(id, { employee: employeeId }, actor) {
   await card.save();
   await NfcAssignment.create({ card: id, employee: employee._id, company: employee.company, assignedBy: actor.userId });
   await logAudit({ user: actor.userId, action: 'nfc.card.assign', targetType: 'NfcCard', targetId: id, meta: { token: card.token, employee: employee.name }, ip: actor.ip });
+  return getCard(id);
+}
+
+export async function assignCardToCompany(id, { company }, actor) {
+  const card = await NfcCard.findById(id);
+  if (!card) throw new ApiError(404, 'Card not found.');
+  if (card.status !== 'unassigned') throw new ApiError(400, 'Only unassigned cards can be assigned to a company inventory.');
+  
+  card.company = company;
+  await card.save();
+  await logAudit({ user: actor.userId, action: 'nfc.card.assignCompany', targetType: 'NfcCard', targetId: id, meta: { token: card.token }, ip: actor.ip });
   return getCard(id);
 }
 
@@ -268,6 +284,13 @@ export async function rotateToken(id, actor) {
 }
 
 // ---------------------------------------------------------------- Public
+
+export async function deleteCard(id, actor) {
+  const card = await NfcCard.findByIdAndDelete(id).lean();
+  if (!card) throw new ApiError(404, 'Card not found.');
+  await NfcAssignment.deleteMany({ card: id });
+  await logAudit({ user: actor.userId, action: 'nfc.card.delete', targetType: 'NfcCard', targetId: id, meta: { token: card.token }, ip: actor.ip });
+}
 
 /**
  * Resolve a token for the public tap page. Returns whitelisted, already-public

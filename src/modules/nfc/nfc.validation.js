@@ -53,10 +53,12 @@ export const generateBatchSchema = z.object({
   count: z.coerce.number().int().min(1, 'Generate at least 1 card.').max(100, 'Up to 100 at a time.'),
   label: optionalStr(80),
   note: optionalStr(300),
+  company: optionalObjectId,
 });
 
 export const updateCardSchema = z.object({ chipUid: optionalStr(60) });
 export const assignCardSchema = z.object({ employee: objectId('employee') });
+export const assignCardToCompanySchema = z.object({ company: objectId('company') });
 
 export const listCardsSchema = z.object({
   search: optionalStr(60),

@@ -15,6 +15,7 @@ import {
   generateBatchSchema,
   updateCardSchema,
   assignCardSchema,
+  assignCardToCompanySchema,
   listCardsSchema,
   listCompaniesSchema,
   idParamSchema,
@@ -58,7 +59,9 @@ router.get('/cards', validate({ query: listCardsSchema }), asyncHandler(nfc.list
 router.get('/cards/:id', validate({ params: idParamSchema }), asyncHandler(nfc.getCard));
 router.get('/cards/:id/qr.png', validate({ params: idParamSchema }), asyncHandler(nfc.cardQr));
 router.patch('/cards/:id', validate({ params: idParamSchema, body: updateCardSchema }), asyncHandler(nfc.updateCard));
+router.delete('/cards/:id', validate({ params: idParamSchema }), asyncHandler(nfc.deleteCard));
 router.post('/cards/:id/assign', validate({ params: idParamSchema, body: assignCardSchema }), asyncHandler(nfc.assignCard));
+router.post('/cards/:id/assign-company', validate({ params: idParamSchema, body: assignCardToCompanySchema }), asyncHandler(nfc.assignCardToCompany));
 router.post('/cards/:id/unassign', validate({ params: idParamSchema }), asyncHandler(nfc.unassignCard));
 router.post('/cards/:id/lost', validate({ params: idParamSchema }), asyncHandler(nfc.markLost));
 router.post('/cards/:id/return', validate({ params: idParamSchema }), asyncHandler(nfc.markReturned));
