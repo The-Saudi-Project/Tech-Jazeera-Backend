@@ -45,7 +45,7 @@ router.use(
       'object-src': ["'none'"],
       'frame-ancestors': ["'self'"],
       'form-action': ["'self'"],
-      'img-src': ["'self'", 'data:'],
+      'img-src': ["'self'", 'data:', 'https://res.cloudinary.com'],
       // Inline styles only; the page has no external stylesheet. Style
       // injection cannot execute code, so this is a much smaller risk than
       // inline script and matches helmet's own default.
