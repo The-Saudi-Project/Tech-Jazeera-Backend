@@ -5,18 +5,18 @@
  * Upload and versioning = Admin/Manager/HR/Operations. Delete is narrower
  * (Admin/Manager/HR) because it destroys files and history.
  *
- * Upload flow order: uploadSingle (Multer writes the file) → validate the
- * multipart text fields → controller. If validation or the controller fails,
- * the trailing error handler deletes the just-written file so a rejected
- * upload never leaves an orphan on disk.
+ * Upload flow order: uploadSingle (Multer streams the file to Cloudinary) →
+ * validate the multipart text fields → controller. If validation or the
+ * controller fails, the trailing error handler deletes the just-stored file so
+ * a rejected upload never leaves an orphan behind.
  */
 import { Router } from 'express';
-import fs from 'node:fs';
 import asyncHandler from '../../utils/asyncHandler.js';
+import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
-import { uploadSingle } from '../../middleware/upload.js';
+import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
 import {
   createDocumentSchema,
   listDocumentsSchema,
@@ -68,10 +68,21 @@ router.delete(
 /**
  * Cleanup handler: if anything after Multer failed on an upload route, remove
  * the orphaned file before forwarding the error to the global handler.
+ *
+ * The file is already in Cloudinary by this point (Multer streams it there
+ * before validation runs), so cleanup is an API call, not an unlink —
+ * `req.file.filename` is the public_id. This used to call fs.unlink on
+ * `req.file.path`, which since the Cloudinary migration is a URL: it always
+ * failed, into an empty callback, leaving every rejected upload stored forever
+ * with no database row left to find it by.
  */
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
-  if (req.file?.path) fs.unlink(req.file.path, () => {});
+  if (req.file?.filename) {
+    destroyDocumentFile(req.file.filename).catch((cleanupErr) =>
+      logger.error(`[documents] orphaned upload ${req.file.filename}: ${cleanupErr.message}`)
+    );
+  }
   next(err);
 });
 

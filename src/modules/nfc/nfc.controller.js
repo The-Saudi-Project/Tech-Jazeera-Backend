@@ -6,6 +6,7 @@
 import QRCode from 'qrcode';
 import ApiResponse from '../../utils/ApiResponse.js';
 import ApiError from '../../utils/ApiError.js';
+import { buildCsv } from '../../utils/csv.js';
 import * as nfcService from './nfc.service.js';
 import * as analytics from './nfc.analytics.service.js';
 
@@ -68,10 +69,11 @@ export async function listBatches(req, res) {
 /** GET /api/nfc/batches/:id/cards.csv — writing all a batch's chips in one go. */
 export async function batchCsv(req, res) {
   const { batch, cards } = await nfcService.getBatchCards(req.params.id);
-  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // csvCell also neutralizes formula triggers — `Assigned to` and `Chip UID`
+  // are free text, and this file is opened in Excel by whoever prints the cards.
   const header = ['Token', 'URL', 'Chip UID', 'Status', 'Assigned to'];
-  const rows = cards.map((c) => [c.token, c.url, c.chipUid ?? '', c.status, c.employee?.name ?? ''].map(esc).join(','));
-  const csv = [header.map(esc).join(','), ...rows].join('\r\n');
+  const rows = cards.map((c) => [c.token, c.url, c.chipUid ?? '', c.status, c.employee?.name ?? '']);
+  const csv = buildCsv(header, rows);
   const name = `nfc_batch_${(batch.label || batch._id).toString().replace(/[^\w-]/g, '_')}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);

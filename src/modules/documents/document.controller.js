@@ -8,10 +8,26 @@
  * `req.file` on any failure.
  */
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import ApiError from '../../utils/ApiError.js';
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as documentService from './document.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
+
+/**
+ * Content-Disposition for a user-supplied filename.
+ *
+ * Two forms on purpose: a quoted ASCII fallback with quotes/backslashes and
+ * control characters stripped (they would break the header), plus RFC 5987
+ * `filename*` so Arabic and accented names survive intact.
+ */
+function contentDisposition(originalName) {
+  // eslint-disable-next-line no-control-regex
+  const ascii = originalName.replace(/[\u0000-\u001f"\\]/g, '').replace(/[^\x20-\x7e]/g, '_');
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(originalName)}`;
+}
 
 /** POST /api/documents (multipart: file + fields) — 201 → data: document */
 export async function create(req, res) {
@@ -41,20 +57,30 @@ export async function get(req, res) {
  * GET /api/documents/:id/file?version=N — streams the file bytes with the
  * correct Content-Type. The client decides inline preview vs download; the
  * originalName travels in Content-Disposition for downloads.
+ *
+ * Remote (Cloudinary) files are fetched BY THIS SERVER and piped through.
+ * Redirecting the browser to storage instead would be cheaper, but it hands
+ * the client a URL that works without a session — the file would then be
+ * readable by anyone who ever saw it, forever, regardless of role or whether
+ * the account still exists. Proxying keeps every byte behind requireAuth →
+ * requireStaff. See docs/SECURITY-AUDIT.md (C-1).
  */
 export async function file(req, res) {
-  const fileData = await documentService.resolveFile(
-    req.params.id,
-    req.query.version
-  );
-
-  if (fileData.fileUrl) {
-    return res.redirect(fileData.fileUrl);
-  }
+  const fileData = await documentService.resolveFile(req.params.id, req.query.version);
 
   res.setHeader('Content-Type', fileData.mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileData.originalName)}"`);
-  fs.createReadStream(fileData.absolutePath).pipe(res);
+  res.setHeader('Content-Disposition', contentDisposition(fileData.originalName));
+
+  if (fileData.source === 'disk') {
+    await pipeline(fs.createReadStream(fileData.absolutePath), res);
+    return;
+  }
+
+  const upstream = await fetch(fileData.url);
+  if (!upstream.ok || !upstream.body) {
+    throw new ApiError(410, 'The stored file is no longer available.');
+  }
+  await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
 /** DELETE /api/documents/:id — 200 → data: null (file(s) removed from disk) */

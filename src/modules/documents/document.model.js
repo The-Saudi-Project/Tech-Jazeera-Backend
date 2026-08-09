@@ -10,8 +10,9 @@
  *    has no life outside its document and is only ever read together with it —
  *    the embed rule. The CURRENT version is simply the last element (versions
  *    are only ever appended, never reordered), so `versions.at(-1)` is current.
- *  - The physical file on disk is referenced by `fileName` (a random UUID from
- *    the upload middleware); `originalName` is kept only for display/download.
+ *  - The stored file is referenced by `storage` + `fileName` (a disk UUID, or a
+ *    Cloudinary public_id — see the field comments); `originalName` is kept
+ *    only for display/download.
  */
 import mongoose from 'mongoose';
 
@@ -35,7 +36,26 @@ export const DOCUMENT_CATEGORIES = [
 const versionSchema = new mongoose.Schema(
   {
     version: { type: Number, required: true },
-    fileName: { type: String, required: true }, // UUID name on disk
+    /**
+     * Where the bytes actually live.
+     *   'local'      — a file under UPLOAD_DIR (everything predating Cloudinary)
+     *   'cloudinary' — an object in the Cloudinary account
+     * Defaults to 'local' so documents written before this field existed keep
+     * resolving exactly as they did.
+     */
+    storage: { type: String, enum: ['local', 'cloudinary'], default: 'local' },
+    /**
+     * The storage KEY, not a URL: a UUID filename for 'local', Cloudinary's
+     * `public_id` (stored verbatim, as returned) for 'cloudinary'.
+     *
+     * Deliberately never a delivery URL. Deriving the key by string-slicing a
+     * URL is what made deletes silently fail, and storing a signed URL here
+     * would leak a readable capability into every API response that includes
+     * versions. See docs/SECURITY-AUDIT.md (C-1, C-2).
+     */
+    fileName: { type: String, required: true },
+    /** Cloudinary resource_type ('raw'); null for local files. */
+    resourceType: { type: String, default: null },
     originalName: { type: String, required: true }, // what the user uploaded
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
