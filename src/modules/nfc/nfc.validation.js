@@ -23,6 +23,7 @@ export const idParamSchema = z.object({ id: objectId('record') });
 
 export const createCompanySchema = z.object({
   companyName: z.string().trim().min(1, 'Company name is required.').max(120),
+  companyNameAr: optionalStr(120),
   contactPerson: optionalStr(100),
   phone: optionalStr(30),
   email: optionalEmail,

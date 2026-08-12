@@ -324,6 +324,7 @@ export async function getPublicCardByToken(token) {
     },
     company: {
       companyName: c.companyName ?? '',
+      companyNameAr: c.companyNameAr ?? '',
       website: c.website ?? '',
       address: c.address ?? '',
       mapLink: c.mapLink ?? '',

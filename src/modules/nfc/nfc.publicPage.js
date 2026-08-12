@@ -79,7 +79,7 @@ const STYLE = `
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 :root{--ease:cubic-bezier(.25,1,.3,1)}
 html,body{height:100%}
-body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);min-height:100svh;display:grid;place-items:center;padding:24px;position:relative;overflow-x:hidden}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;position:relative;overflow-x:hidden}
 
 .saudi-art{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0.25;
  background-image:url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg stroke='%23ffffff' stroke-width='0.5' fill='none' stroke-opacity='0.6'%3E%3Cpath d='M60 0 L120 60 L60 120 L0 60 Z'/%3E%3Cpath d='M30 30 L90 90 M30 90 L90 30'/%3E%3Ccircle cx='60' cy='60' r='42'/%3E%3Ccircle cx='60' cy='60' r='18'/%3E%3C/g%3E%3C/svg%3E");
@@ -120,7 +120,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 
 .name{font-weight:700;font-size:32px;line-height:1.1;text-align:center;letter-spacing:-0.02em;text-wrap:balance;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.3);}
 .role{text-align:center;color:var(--muted);font-size:15px;margin-top:8px;font-weight:500;}
-.org{text-align:center;color:var(--brand);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;margin-top:6px;font-weight:700;filter:brightness(1.4);}
+.org{text-align:center;color:var(--brand);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;margin-top:6px;font-weight:700;filter:brightness(1.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;}
+.org-ar{text-align:center;color:var(--brand);font-size:14px;margin-top:4px;font-weight:600;filter:brightness(1.3);direction:rtl;font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;}
 .rule{height:1px;margin:28px 16px;background:linear-gradient(90deg,transparent,var(--hair),transparent)}
 
 .save{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:18px;border-radius:24px;text-decoration:none;font-weight:600;font-size:17px;color:#fff;
@@ -150,6 +151,31 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .foot{margin-top:28px;text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:var(--muted);font-weight:600;}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important}.load{display:none}.card::after{display:none}}
+
+@media (max-width:480px){
+  body{padding:24px 10px}
+  .card{padding:36px 20px 32px;border-radius:24px}
+  .name{font-size:26px}
+  .org{font-size:11px;letter-spacing:0.05em}
+  .ava{width:100px;height:100px;font-size:36px;margin-bottom:18px}
+  .logo{max-height:38px;margin-bottom:20px}
+  .actions{gap:10px}
+  .act{padding:14px 4px;border-radius:18px}
+  .act .ic{width:40px;height:40px;border-radius:12px}
+  .act .ic svg{width:20px;height:20px}
+  .save{padding:15px;font-size:15px;border-radius:18px}
+}
+
+@media (max-width:360px){
+  body{padding:16px 8px}
+  .card{padding:28px 14px 24px;border-radius:20px}
+  .name{font-size:22px}
+  .org{font-size:10px;letter-spacing:0.03em}
+  .actions{grid-template-columns:repeat(3,1fr);gap:8px}
+  .act{padding:12px 2px;border-radius:14px}
+  .act .ic{width:36px;height:36px}
+  .act span:last-child{font-size:11px}
+}
 `;
 
 /**
@@ -200,6 +226,8 @@ ${cardUrl ? `<meta property="og:url" content="${h(cardUrl)}">` : ''}
 ${ogImage ? `<meta property="og:image" content="${h(ogImage)}">` : ''}
 <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
 <meta name="theme-color" content="${h(vars['--bg'])}">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
 <style>${STYLE}</style></head>
 <body style="${styleVars}">
 <div class="glow"></div>
@@ -213,6 +241,7 @@ ${ogImage ? `<meta property="og:image" content="${h(ogImage)}">` : ''}
   <h1 class="name">${h(employee.name)}</h1>
   ${employee.jobTitle ? `<p class="role">${h(employee.jobTitle)}</p>` : ''}
   ${company?.companyName ? `<p class="org">${h(company.companyName)}</p>` : ''}
+  ${company?.companyNameAr ? `<p class="org-ar" dir="rtl" lang="ar">${h(company.companyNameAr)}</p>` : ''}
   <div class="rule"></div>
   <a class="save" href="${attr(vcardUrl)}">${iconSvg(ICON.save)} Save Contact</a>
   <div class="actions">${rows}</div>

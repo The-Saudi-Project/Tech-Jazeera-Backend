@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 const nfcCompanySchema = new mongoose.Schema(
   {
     companyName: { type: String, required: true, trim: true },
+    companyNameAr: { type: String, trim: true, default: null },
     contactPerson: { type: String, trim: true },
     phone: { type: String, trim: true },
     email: { type: String, trim: true, lowercase: true },
