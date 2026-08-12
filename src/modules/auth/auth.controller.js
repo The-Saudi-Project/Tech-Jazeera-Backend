@@ -38,7 +38,6 @@ const cookieOptions = {
   secure: env.isProduction,
   sameSite: env.isProduction ? 'none' : 'lax',
   path: '/api/auth',
-  maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
 };
 
 /**
