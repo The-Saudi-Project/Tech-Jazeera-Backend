@@ -3,7 +3,16 @@
  * break the JSON envelope: the QR image (PNG) and the CSV export (text/csv),
  * the documented binary-response exception.
  */
-import QRCode from 'qrcode';
+import sharp from 'sharp';
+import { generatePremiumQrSvg } from './nfc.qr.js';
+
+/** Convert an SVG string to a high-quality PNG buffer via sharp. */
+async function svgToPng(svg, size) {
+  return sharp(Buffer.from(svg))
+    .resize(size, size)
+    .png({ quality: 100 })
+    .toBuffer();
+}
 import ApiResponse from '../../utils/ApiResponse.js';
 import ApiError from '../../utils/ApiError.js';
 import { buildCsv } from '../../utils/csv.js';
@@ -131,10 +140,12 @@ export async function companyAnalytics(req, res) {
   res.json(new ApiResponse('Company analytics.', data));
 }
 
-/** GET /api/nfc/cards/:id/qr.png — QR of the card's public URL. */
+/** GET /api/nfc/cards/:id/qr.png — Premium branded QR of the card's public URL. */
 export async function cardQr(req, res) {
   const card = await nfcService.getCard(req.params.id);
-  const png = await QRCode.toBuffer(card.url, { width: 512, margin: 1, errorCorrectionLevel: 'M' });
+  const brandColour = card.company?.brandColour;
+  const svg = generatePremiumQrSvg(card.url, { brandColour, size: 1024 });
+  const png = await svgToPng(svg, 1024);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Content-Disposition', `inline; filename="nfc_${card.token}.png"`);
   res.send(png);
