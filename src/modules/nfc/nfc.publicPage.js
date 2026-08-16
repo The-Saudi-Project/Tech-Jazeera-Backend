@@ -96,7 +96,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 @keyframes spin{to{transform:rotate(360deg);}}
 @keyframes loadout{to{opacity:0;visibility:hidden;transform:scale(1.05)}}
 
-.card{position:relative;z-index:10;width:min(420px,100%);border-radius:32px;padding:32px 24px 28px;
+.card{position:relative;z-index:10;width:min(440px,100%);min-height:min(88svh, 820px);border-radius:36px;padding:40px 24px 32px;
+ display:flex;flex-direction:column;
  background:var(--card-bg);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
  border:1px solid var(--card-border);
  box-shadow:0 30px 60px -15px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.15);
@@ -109,81 +110,87 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
  background:radial-gradient(800px circle at var(--x) var(--y), rgba(255,255,255,0.06), transparent 40%);
  mix-blend-mode:overlay;transition:opacity 0.2s;}
 
-.logo{display:block;max-height:60px;max-width:70%;margin:0 auto 14px;object-fit:contain;animation:pop 0.6s var(--ease) 1.2s both;filter:drop-shadow(0 4px 16px rgba(0,0,0,0.4)) drop-shadow(0 0 20px rgba(255,255,255,0.15));}
-.logo-hero{max-height:90px;max-width:75%;margin:0 auto 20px;}
+.card-content { flex-grow: 1; display: flex; flex-direction: column; justify-content: space-evenly; gap: 16px; }
+.profile-header { display: flex; flex-direction: column; align-items: center; }
+.actions-section { width: 100%; }
 
-.ava{width:96px;height:96px;border-radius:50%;margin:0 auto 16px;display:grid;place-items:center;overflow:hidden;
+.logo{display:block;max-height:60px;max-width:70%;margin:0 auto 16px;object-fit:contain;animation:pop 0.6s var(--ease) 1.2s both;filter:drop-shadow(0 4px 16px rgba(0,0,0,0.4)) drop-shadow(0 0 20px rgba(255,255,255,0.15));}
+.logo-hero{max-height:140px;max-width:85%;margin:16px auto 32px;filter:drop-shadow(0 8px 24px rgba(0,0,0,0.5)) drop-shadow(0 0 30px rgba(255,255,255,0.2));animation:pop 0.8s var(--ease) 1s both;}
+
+.ava{width:104px;height:104px;border-radius:50%;margin:0 auto 16px;display:grid;place-items:center;overflow:hidden;
  font-family:ui-serif,Georgia,serif;font-size:36px;font-weight:600;color:#fff;
  background:var(--brand);
- box-shadow:0 0 30px -10px var(--brand), inset 0 2px 4px rgba(255,255,255,0.4);animation:floaty 6s ease-in-out 2s infinite;position:relative;z-index:2;border:3px solid rgba(255,255,255,0.15);}
+ box-shadow:0 0 30px -10px var(--brand), inset 0 2px 4px rgba(255,255,255,0.4);animation:floaty 6s ease-in-out 2s infinite, pop 0.6s var(--ease) 1.3s both;position:relative;z-index:2;border:3px solid rgba(255,255,255,0.15);}
 .ava img{width:100%;height:100%;object-fit:cover}
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 
-.name{font-weight:700;font-size:28px;line-height:1.1;text-align:center;letter-spacing:-0.02em;text-wrap:balance;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.3);}
-.role{text-align:center;color:var(--muted);font-size:14px;margin-top:5px;font-weight:500;}
-.org{text-align:center;color:var(--brand);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;margin-top:6px;font-weight:700;filter:brightness(1.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;}
-.org-ar{text-align:center;color:var(--brand);font-size:14px;margin-top:4px;font-weight:600;filter:brightness(1.3);direction:rtl;font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;}
-.rule{height:1px;margin:18px 16px;background:linear-gradient(90deg,transparent,var(--hair),transparent)}
+.name{font-weight:700;font-size:28px;line-height:1.1;text-align:center;letter-spacing:-0.02em;text-wrap:balance;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.3);animation:pop 0.6s var(--ease) 1.4s both;}
+.role{text-align:center;color:var(--muted);font-size:14px;margin-top:6px;font-weight:500;animation:pop 0.6s var(--ease) 1.45s both;}
+.org{text-align:center;color:var(--brand);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;margin-top:8px;font-weight:700;filter:brightness(1.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;animation:pop 0.6s var(--ease) 1.5s both;}
+.org-ar{text-align:center;color:var(--brand);font-size:14px;margin-top:4px;font-weight:600;filter:brightness(1.3);direction:rtl;font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;animation:pop 0.6s var(--ease) 1.5s both;}
+.rule{height:1px;margin:16px 0;background:linear-gradient(90deg,transparent,var(--hair),transparent);animation:pop 0.6s var(--ease) 1.6s both;}
 
-.save{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px;border-radius:20px;text-decoration:none;font-weight:600;font-size:16px;color:#fff;
+.save{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px;border-radius:24px;text-decoration:none;font-weight:600;font-size:16px;color:#fff;
  background:linear-gradient(135deg, var(--brand), var(--accent));
- box-shadow:0 12px 32px -8px var(--glow), inset 0 2px 0 rgba(255,255,255,0.3);animation:pop 0.6s var(--ease) 1.5s both;transition:all 0.3s var(--ease);position:relative;overflow:hidden;}
+ box-shadow:0 12px 32px -8px var(--glow), inset 0 2px 0 rgba(255,255,255,0.3);animation:pop 0.6s var(--ease) 1.7s both;transition:all 0.3s var(--ease);position:relative;overflow:hidden;}
 .save::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom, rgba(255,255,255,0.15), transparent);pointer-events:none;}
 .save:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 20px 40px -10px var(--glow), inset 0 2px 0 rgba(255,255,255,0.4);}
 .save:active{transform:scale(0.97)}
-.save svg{width:22px;height:22px}
+.save svg{width:22px;height:22px;animation:floaty 4s infinite;}
 
-.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
-.act{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 4px;border-radius:20px;text-decoration:none;color:var(--text);
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px 4px;border-radius:24px;text-decoration:none;color:var(--text);
  background:var(--btn-bg);border:1px solid var(--hair);box-shadow:0 8px 24px rgba(0,0,0,0.2);transition:all 0.25s var(--ease);animation:pop 0.5s var(--ease) both;}
 .act:hover{transform:translateY(-5px) scale(1.05);background:rgba(255,255,255,0.05);border-color:color-mix(in oklab,var(--brand) 40%,transparent);box-shadow:0 12px 32px rgba(0,0,0,0.3), 0 0 20px var(--icon-bg);}
 .act:active{transform:scale(0.95)}
-.act .ic{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;color:var(--accent);background:var(--icon-bg);transition:transform 0.3s var(--ease);box-shadow:inset 0 1px 0 rgba(255,255,255,0.1);}
+.act .ic{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;color:var(--accent);background:var(--icon-bg);transition:transform 0.3s var(--ease);box-shadow:inset 0 1px 0 rgba(255,255,255,0.1);}
 .act:hover .ic{transform:rotate(5deg) scale(1.1);color:#fff;}
-.act .ic svg{width:20px;height:20px}
+.act .ic svg{width:22px;height:22px}
 .act span:last-child{font-size:12px;font-weight:500;}
 
-.actions .act:nth-child(1){animation-delay:1.6s}.actions .act:nth-child(2){animation-delay:1.68s}.actions .act:nth-child(3){animation-delay:1.76s}
-.actions .act:nth-child(4){animation-delay:1.84s}.actions .act:nth-child(5){animation-delay:1.92s}.actions .act:nth-child(6){animation-delay:2s}
+.actions .act:nth-child(1){animation-delay:1.8s}.actions .act:nth-child(2){animation-delay:1.85s}.actions .act:nth-child(3){animation-delay:1.9s}
+.actions .act:nth-child(4){animation-delay:1.95s}.actions .act:nth-child(5){animation-delay:2s}.actions .act:nth-child(6){animation-delay:2.05s}
 
 @keyframes pop{0%{opacity:0;transform:translateY(16px) scale(0.92)}100%{opacity:1;transform:translateY(0) scale(1)}}
 
-.bio{margin-top:16px;padding:16px;border-radius:20px;font-size:14px;line-height:1.6;color:var(--text);background:var(--btn-bg);border:1px solid var(--hair);animation:pop 0.6s var(--ease) 2.1s both;box-shadow:inset 0 2px 10px rgba(0,0,0,0.1);}
-.foot{margin-top:18px;text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:var(--muted);font-weight:600;}
+.bio{margin-top:16px;padding:16px;border-radius:20px;font-size:14px;line-height:1.6;color:var(--text);background:var(--btn-bg);border:1px solid var(--hair);animation:pop 0.6s var(--ease) 2.2s both;box-shadow:inset 0 2px 10px rgba(0,0,0,0.1);}
+.foot{margin-top:auto;padding-top:20px;text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:var(--muted);font-weight:600;animation:pop 0.6s var(--ease) 2.3s both;}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important}.load{display:none}.card::after{display:none}}
 
 @media (max-width:480px){
   body{padding:24px 10px}
-  .card{padding:24px 16px 22px;border-radius:24px}
+  .card{padding:32px 16px 24px;border-radius:28px}
   .name{font-size:24px}
   .org{font-size:11px;letter-spacing:0.05em}
-  .ava{width:80px;height:80px;font-size:30px;margin-bottom:12px}
+  .ava{width:88px;height:88px;font-size:30px;margin-bottom:12px}
   .logo{max-height:48px;margin-bottom:10px}
+  .logo-hero{max-height:110px;margin-bottom:20px}
   .actions{gap:8px;margin-top:12px}
-  .act{padding:12px 3px;border-radius:16px}
-  .act .ic{width:36px;height:36px;border-radius:12px}
-  .act .ic svg{width:18px;height:18px}
+  .act{padding:12px 3px;border-radius:20px}
+  .act .ic{width:40px;height:40px;border-radius:14px}
+  .act .ic svg{width:20px;height:20px}
   .act span:last-child{font-size:11px}
-  .save{padding:12px;font-size:14px;border-radius:16px}
-  .rule{margin:12px 16px}
-  .foot{margin-top:12px}
+  .save{padding:14px;font-size:15px;border-radius:20px}
+  .rule{margin:12px 0}
+  .foot{padding-top:16px}
 }
 
 @media (max-width:360px){
   body{padding:16px 8px}
-  .card{padding:20px 12px 18px;border-radius:20px}
-  .name{font-size:20px}
+  .card{padding:24px 12px 20px;border-radius:24px;min-height:80svh;}
+  .name{font-size:22px}
   .org{font-size:10px;letter-spacing:0.03em}
-  .ava{width:70px;height:70px;font-size:26px;margin-bottom:10px}
+  .ava{width:76px;height:76px;font-size:26px;margin-bottom:10px}
   .logo{max-height:40px;margin-bottom:8px}
+  .logo-hero{max-height:90px;margin-bottom:16px}
   .actions{grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
-  .act{padding:10px 2px;border-radius:14px}
-  .act .ic{width:32px;height:32px}
+  .act{padding:10px 2px;border-radius:16px}
+  .act .ic{width:36px;height:36px}
   .act span:last-child{font-size:10px}
-  .save{padding:10px;font-size:13px}
-  .rule{margin:10px 12px}
-  .foot{margin-top:10px}
+  .save{padding:12px;font-size:14px;border-radius:16px}
+  .rule{margin:10px 0}
+  .foot{padding-top:12px}
 }
 `;
 
@@ -245,16 +252,22 @@ ${ogImage ? `<meta property="og:image" content="${h(ogImage)}">` : ''}
 <div class="load"><div class="ring"></div></div>
 <h2 class="sr-only">Digital contact card for ${h(employee.name)}${company?.companyName ? `, ${h(company.companyName)}` : ''}.</h2>
 <main class="card" id="card">
-  ${logoUrl ? `<img class="logo${!photoUrl ? ' logo-hero' : ''}" src="${attr(logoUrl)}" alt="${h(company?.companyName || 'Logo')}">` : ''}
-  ${avatar}
-  <h1 class="name">${h(employee.name)}</h1>
-  ${employee.jobTitle ? `<p class="role">${h(employee.jobTitle)}</p>` : ''}
-  ${company?.companyName ? `<p class="org">${h(company.companyName)}</p>` : ''}
-  ${company?.companyNameAr ? `<p class="org-ar" dir="rtl" lang="ar">${h(company.companyNameAr)}</p>` : ''}
-  <div class="rule"></div>
-  <a class="save" href="${attr(vcardUrl)}">${iconSvg(ICON.save)} Save Contact</a>
-  <div class="actions">${rows}</div>
-  ${employee.bio ? `<p class="bio">${h(employee.bio)}</p>` : ''}
+  <div class="card-content">
+    <div class="profile-header">
+      ${logoUrl ? `<img class="logo${!photoUrl ? ' logo-hero' : ''}" src="${attr(logoUrl)}" alt="${h(company?.companyName || 'Logo')}">` : ''}
+      ${avatar}
+      <h1 class="name">${h(employee.name)}</h1>
+      ${employee.jobTitle ? `<p class="role">${h(employee.jobTitle)}</p>` : ''}
+      ${company?.companyName ? `<p class="org">${h(company.companyName)}</p>` : ''}
+      ${company?.companyNameAr ? `<p class="org-ar" dir="rtl" lang="ar">${h(company.companyNameAr)}</p>` : ''}
+    </div>
+    <div class="actions-section">
+      <div class="rule"></div>
+      <a class="save" href="${attr(vcardUrl)}">${iconSvg(ICON.save)} Save Contact</a>
+      <div class="actions">${rows}</div>
+      ${employee.bio ? `<p class="bio">${h(employee.bio)}</p>` : ''}
+    </div>
+  </div>
   <p class="foot">Tap &middot; Connect</p>
 </main>
 <script nonce="${attr(nonce)}">

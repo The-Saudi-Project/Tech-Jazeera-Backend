@@ -46,10 +46,9 @@ router.use(
       'frame-ancestors': ["'self'"],
       'form-action': ["'self'"],
       'img-src': ["'self'", 'data:', 'https://res.cloudinary.com'],
-      // Inline styles only; the page has no external stylesheet. Style
-      // injection cannot execute code, so this is a much smaller risk than
-      // inline script and matches helmet's own default.
-      'style-src': ["'self'", "'unsafe-inline'"],
+      // Inline styles are used by the page, and we load an external font from Google Fonts.
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'https://fonts.gstatic.com'],
       'script-src': ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
       'connect-src': ["'self'"], // the click beacon posts back here
     },
