@@ -6,6 +6,7 @@
  * a way to get an account from inside the app, not just the seed:admin CLI.
  */
 import User, { COORDINATOR_MANAGER_ROLES } from '../auth/user.model.js';
+import RefreshToken from '../auth/refreshToken.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -124,4 +125,33 @@ export async function updateStaffUser(id, { role, managedBy, isActive }, actor) 
     isActive: user.isActive,
     managedBy: user.managedBy,
   };
+}
+
+/**
+ * Admin resets a staff user's password — the recovery path for "I forgot
+ * it" or "I think it's compromised", since there is no self-service email
+ * flow (no email provider is configured for this project; see
+ * docs/P2-M4-notes.md). Same one-time-temp-password shape as provisioning:
+ * generated, returned once, only its hash stored. Every existing session for
+ * that account is revoked, same as a self-service password change.
+ */
+export async function resetStaffPassword(id, actor) {
+  const user = await User.findById(id);
+  if (!user || user.role === 'Worker') throw new ApiError(404, 'Staff user not found.');
+
+  const tempPassword = generateTempPassword();
+  user.passwordHash = await hashPassword(tempPassword);
+  await user.save();
+  await RefreshToken.deleteMany({ user: user._id });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'user.password.reset',
+    targetType: 'User',
+    targetId: user._id,
+    meta: { email: user.email },
+    ip: actor.ip,
+  });
+
+  return { tempPassword };
 }

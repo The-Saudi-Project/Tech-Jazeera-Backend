@@ -4,6 +4,7 @@
  */
 import Employee from './employee.model.js';
 import User from '../auth/user.model.js';
+import RefreshToken from '../auth/refreshToken.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -179,6 +180,34 @@ export async function createEmployeeLogin(employeeId, { email }, actor) {
     user: { id: user._id.toString(), name: user.name, email: user.email, role: user.role },
     tempPassword,
   };
+}
+
+/**
+ * Admin/HR resets a Worker's password — the recovery path for a forgotten
+ * or lost temp password, mirroring resetStaffPassword() in the Users module.
+ * No self-service email flow exists for this project (no email provider is
+ * configured; see docs/P2-M4-notes.md), so this admin-initiated reset is the
+ * only recovery path today.
+ */
+export async function resetEmployeeLoginPassword(employeeId, actor) {
+  const login = await User.findOne({ employee: employeeId });
+  if (!login) throw new ApiError(404, 'This employee does not have a login yet.');
+
+  const tempPassword = generateTempPassword();
+  login.passwordHash = await hashPassword(tempPassword);
+  await login.save();
+  await RefreshToken.deleteMany({ user: login._id });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'user.password.reset',
+    targetType: 'User',
+    targetId: login._id,
+    meta: { email: login.email, employeeId },
+    ip: actor.ip,
+  });
+
+  return { tempPassword };
 }
 
 /** Duplicate employeeId is caught by the unique index → 409 via errorHandler. */

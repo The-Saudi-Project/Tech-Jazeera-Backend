@@ -5,10 +5,11 @@
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
+import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { loginLimiter } from '../../middleware/rateLimiter.js';
 import { requireTrustedOrigin } from '../../middleware/originGuard.js';
-import { loginSchema } from './auth.validation.js';
+import { loginSchema, changePasswordSchema } from './auth.validation.js';
 import * as authController from './auth.controller.js';
 
 const router = Router();
@@ -23,5 +24,15 @@ router.use(requireTrustedOrigin);
 router.post('/login', loginLimiter, validate({ body: loginSchema }), asyncHandler(authController.login));
 router.post('/refresh', asyncHandler(authController.refresh));
 router.post('/logout', asyncHandler(authController.logout));
+
+// Bearer-authenticated, unlike the three above — an attacker's site can't
+// forge an Authorization header, so requireTrustedOrigin isn't what protects
+// this one (requireAuth is), even though it's mounted on the same router.
+router.patch(
+  '/password',
+  requireAuth,
+  validate({ body: changePasswordSchema }),
+  asyncHandler(authController.changePassword)
+);
 
 export default router;

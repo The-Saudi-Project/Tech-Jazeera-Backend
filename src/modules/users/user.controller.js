@@ -33,3 +33,12 @@ export async function update(req, res) {
   const user = await userService.updateStaffUser(req.params.id, req.body, actor(req));
   res.json(new ApiResponse('User updated.', user));
 }
+
+/**
+ * POST /api/users/:id/reset-password   (Admin)
+ * 200 → data: { tempPassword } — shown ONCE, hand it over · 404 unknown
+ */
+export async function resetPassword(req, res) {
+  const data = await userService.resetStaffPassword(req.params.id, actor(req));
+  res.json(new ApiResponse('Password reset.', data));
+}

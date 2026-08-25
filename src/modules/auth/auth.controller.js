@@ -82,3 +82,16 @@ export async function logout(req, res) {
   res.clearCookie(REFRESH_COOKIE, { ...cookieOptions, maxAge: undefined });
   res.json(new ApiResponse('Logged out.'));
 }
+
+/**
+ * PATCH /api/auth/password
+ * Auth: Bearer (any logged-in role) + the current password in the body
+ * 200 → clears the refresh cookie (every session was revoked) — the client
+ * must treat this as a logout and send the user back to /login
+ * 401 not logged in, or current password wrong
+ */
+export async function changePassword(req, res) {
+  await authService.changePassword({ userId: req.user.id, ...req.body }, req.ip);
+  res.clearCookie(REFRESH_COOKIE, { ...cookieOptions, maxAge: undefined });
+  res.json(new ApiResponse('Password changed. Please sign in again.'));
+}

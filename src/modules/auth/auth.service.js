@@ -177,3 +177,27 @@ export async function logout({ refreshToken, ip }) {
   const stored = await RefreshToken.findOneAndDelete({ tokenHash: hashToken(refreshToken) });
   if (stored) await logAudit({ user: stored.user, action: 'auth.logout', ip });
 }
+
+/**
+ * Self-service password change. Requires proving the CURRENT password (not
+ * just being logged in) — a short-lived access token alone isn't enough
+ * grounds to change the credential that outlives it.
+ *
+ * Every refresh-token session is revoked afterward, on every device — the
+ * same "assume compromise, start clean" posture as reuse detection. The
+ * caller's own session dies too; the client must send them back to /login.
+ */
+export async function changePassword({ userId, currentPassword, newPassword }, ip) {
+  const user = await User.findById(userId).select('+passwordHash');
+  if (!user) throw new ApiError(404, 'Account not found.');
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) throw new ApiError(401, 'Current password is incorrect.');
+
+  user.passwordHash = await hashPassword(newPassword);
+  await user.save();
+  await RefreshToken.deleteMany({ user: user._id });
+
+  await logAudit({ user: user._id, action: 'auth.password.changed', ip });
+  logger.info(`Password changed: ${user.email}`);
+}

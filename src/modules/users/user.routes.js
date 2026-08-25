@@ -44,5 +44,11 @@ router.patch(
   validate({ params: userIdParamSchema, body: updateStaffUserSchema }),
   asyncHandler(userController.update)
 );
+router.post(
+  '/:id/reset-password',
+  requireRoles('Admin'),
+  validate({ params: userIdParamSchema }),
+  asyncHandler(userController.resetPassword)
+);
 
 export default router;

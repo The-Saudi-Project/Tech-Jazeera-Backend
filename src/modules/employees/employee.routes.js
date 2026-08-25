@@ -63,4 +63,13 @@ router.post(
   asyncHandler(employeeController.createLogin)
 );
 
+// Reset a Worker's password — the recovery path when a temp password is
+// lost or forgotten. Same circle as provisioning the login in the first place.
+router.post(
+  '/:id/user/reset-password',
+  requireRoles('Admin', 'HR'),
+  validate({ params: employeeIdParamSchema }),
+  asyncHandler(employeeController.resetLoginPassword)
+);
+
 export default router;

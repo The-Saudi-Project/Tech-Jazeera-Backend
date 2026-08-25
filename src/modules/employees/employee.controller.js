@@ -66,3 +66,12 @@ export async function createLogin(req, res) {
   const data = await employeeService.createEmployeeLogin(req.params.id, req.body, actor(req));
   res.status(201).json(new ApiResponse('Worker login created.', data));
 }
+
+/**
+ * POST /api/employees/:id/user/reset-password   (Admin, HR)
+ * 200 → data: { tempPassword } — shown ONCE, hand it over · 404 no login yet
+ */
+export async function resetLoginPassword(req, res) {
+  const data = await employeeService.resetEmployeeLoginPassword(req.params.id, actor(req));
+  res.json(new ApiResponse('Password reset.', data));
+}
