@@ -101,8 +101,8 @@ export async function getEmployee(id, actor) {
     .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
   // P2-M2: a Coordinator may only open employees assigned to them — everyone
-  // else's existing access (Admin/Manager/HR/Operations/Accounts/Viewer see
-  // everyone) is unchanged.
+  // else's existing access (Admin/Manager/HR/Accounts see everyone) is
+  // unchanged.
   if (actor?.role === 'Coordinator' && employee.coordinator?._id?.toString() !== actor.userId) {
     throw new ApiError(403, 'You do not have access to this employee.');
   }

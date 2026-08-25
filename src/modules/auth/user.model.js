@@ -22,17 +22,18 @@ import mongoose from 'mongoose';
  *
  * `Coordinator` (added in P2-M2) is staff, but scoped: they see and act on
  * only the Employees assigned to them (Employee.coordinator), not the whole
- * company. Everything else (Admin, Manager, HR, Operations, Accounts, Viewer)
- * keeps its existing company-wide visibility — adding Coordinator does not
- * narrow anyone else's access.
+ * company. Everything else (Admin, Manager, HR, Accounts) keeps its existing
+ * company-wide visibility — adding Coordinator does not narrow anyone else's
+ * access.
+ *
+ * `Operations` and `Viewer` were removed after P2-M2 — never had a real
+ * account and weren't part of the intended role set going forward.
  */
 export const ROLES = [
   'Admin',
   'Manager',
   'HR',
-  'Operations',
   'Accounts',
-  'Viewer',
   'Coordinator',
   'Worker',
 ];

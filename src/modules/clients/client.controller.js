@@ -19,13 +19,13 @@ export async function get(req, res) {
   res.json(new ApiResponse('Client.', client));
 }
 
-/** POST /api/clients (Admin, Manager, Operations) — 201 → data: client */
+/** POST /api/clients (Admin, Manager) — 201 → data: client */
 export async function create(req, res) {
   const client = await clientService.createClient(req.body, actor(req));
   res.status(201).json(new ApiResponse('Client created.', client));
 }
 
-/** PATCH /api/clients/:id (Admin, Manager, Operations) — 200 → data: client */
+/** PATCH /api/clients/:id (Admin, Manager) — 200 → data: client */
 export async function update(req, res) {
   const client = await clientService.updateClient(req.params.id, req.body, actor(req));
   res.json(new ApiResponse('Client updated.', client));

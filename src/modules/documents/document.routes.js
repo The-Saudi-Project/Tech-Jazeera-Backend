@@ -2,8 +2,8 @@
  * Document routes.
  *
  * Roles: read/preview/download for any authenticated user (internal tool).
- * Upload and versioning = Admin/Manager/HR/Operations. Delete is narrower
- * (Admin/Manager/HR) because it destroys files and history.
+ * Upload and versioning = Admin/Manager/HR. Delete is the same circle
+ * because it destroys files and history.
  *
  * Upload flow order: uploadSingle (Multer streams the file to Cloudinary) →
  * validate the multipart text fields → controller. If validation or the
@@ -30,7 +30,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M2)
 
-const canWrite = requireRoles('Admin', 'Manager', 'HR', 'Operations');
+const canWrite = requireRoles('Admin', 'Manager', 'HR');
 const canDelete = requireRoles('Admin', 'Manager', 'HR');
 
 router.get('/', validate({ query: listDocumentsSchema }), asyncHandler(documentController.list));

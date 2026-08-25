@@ -2,9 +2,9 @@
  * Deployment routes.
  *
  * Roles: everyone authenticated may READ the register/history. Assigning,
- * transferring and ending are operational actions owned by Admin / Manager /
- * Operations. There is no DELETE — deployments are immutable history; the
- * "end" action is how an active placement is closed.
+ * transferring and ending are operational actions owned by Admin / Manager.
+ * There is no DELETE — deployments are immutable history; the "end" action
+ * is how an active placement is closed.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -24,7 +24,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M2)
 
-const canWrite = requireRoles('Admin', 'Manager', 'Operations');
+const canWrite = requireRoles('Admin', 'Manager');
 
 router.get('/', validate({ query: listDeploymentsSchema }), asyncHandler(deploymentController.list));
 router.get(

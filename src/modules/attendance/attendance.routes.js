@@ -1,9 +1,9 @@
 /**
  * Attendance routes.
  *
- * Roles: marking is an operational/HR action (Admin, Manager, HR, Operations).
- * Reading and exporting are open to any authenticated user — Accounts needs
- * the summary for billing/payroll, Viewers may need to look.
+ * Roles: marking is an operational/HR action (Admin, Manager, HR). Reading
+ * and exporting are open to any authenticated user — Accounts needs the
+ * summary for billing/payroll.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -25,7 +25,7 @@ router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M
 
 router.post(
   '/bulk',
-  requireRoles('Admin', 'Manager', 'HR', 'Operations'),
+  requireRoles('Admin', 'Manager', 'HR'),
   validate({ body: markBulkSchema }),
   asyncHandler(attendanceController.markBulk)
 );

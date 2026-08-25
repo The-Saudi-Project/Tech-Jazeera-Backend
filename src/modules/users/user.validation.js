@@ -1,8 +1,8 @@
 /**
  * Zod schemas for staff-account management (P2-M2).
  *
- * This module provisions STAFF logins only (Admin, Manager, HR, Operations,
- * Accounts, Viewer, Coordinator). Worker logins stay on their existing path —
+ * This module provisions STAFF logins only (Admin, Manager, HR, Accounts,
+ * Coordinator). Worker logins stay on their existing path —
  * POST /api/employees/:id/user — because a Worker login is meaningless
  * without the Employee it's linked to; a staff login has no such anchor.
  */

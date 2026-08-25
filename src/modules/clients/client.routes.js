@@ -1,9 +1,9 @@
 /**
  * Client routes.
  *
- * Role design: everyone authenticated may READ (ops, accounts, managers all
- * need to look clients up). WRITE is Admin/Manager/Operations (they own the
- * client relationship and its sites). DELETE is Admin/Manager only — it is
+ * Role design: everyone authenticated may READ (accounts, managers all
+ * need to look clients up). WRITE is Admin/Manager (they own the client
+ * relationship and its sites). DELETE is Admin/Manager only — it is
  * destructive and also guarded against clients with assigned workers.
  * Setting status = Inactive is the everyday alternative to deletion.
  */
@@ -29,13 +29,13 @@ router.get('/', validate({ query: listClientsSchema }), asyncHandler(clientContr
 router.get('/:id', validate({ params: clientIdParamSchema }), asyncHandler(clientController.get));
 router.post(
   '/',
-  requireRoles('Admin', 'Manager', 'Operations'),
+  requireRoles('Admin', 'Manager'),
   validate({ body: createClientSchema }),
   asyncHandler(clientController.create)
 );
 router.patch(
   '/:id',
-  requireRoles('Admin', 'Manager', 'Operations'),
+  requireRoles('Admin', 'Manager'),
   validate({ params: clientIdParamSchema, body: updateClientSchema }),
   asyncHandler(clientController.update)
 );
