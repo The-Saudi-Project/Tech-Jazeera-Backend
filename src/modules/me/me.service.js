@@ -9,6 +9,7 @@ import * as documentService from '../documents/document.service.js';
 import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import * as leaveService from '../leave/leave.service.js';
+import * as attendanceService from '../attendance/attendance.service.js';
 
 export async function getMyProfile(employeeId) {
   const employee = await Employee.findById(employeeId)
@@ -46,4 +47,20 @@ export async function listMyLeave(employeeId, query) {
 
 export async function cancelMyLeave(employeeId, leaveRequestId, actor) {
   return leaveService.cancelLeaveRequest(leaveRequestId, { ...actor, employee: employeeId });
+}
+
+export async function markMyAttendance(employeeId, body, actor) {
+  return attendanceService.selfMark({ employeeId, ...body }, actor);
+}
+
+/** Own attendance history — defaults to the last 30 days when no range is given. */
+export async function listMyAttendance(employeeId, { from, to } = {}) {
+  const today = new Date();
+  const monthAgo = new Date(today);
+  monthAgo.setUTCDate(monthAgo.getUTCDate() - 30);
+  return attendanceService.listAttendance({
+    from: from ?? monthAgo.toISOString().slice(0, 10),
+    to: to ?? today.toISOString().slice(0, 10),
+    employee: employeeId,
+  });
 }

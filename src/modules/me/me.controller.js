@@ -71,3 +71,15 @@ export async function cancelLeave(req, res) {
   const request = await meService.cancelMyLeave(myEmployeeId(req), req.params.id, actor(req));
   res.json(new ApiResponse('Leave request cancelled.', request));
 }
+
+/** POST /api/me/attendance — 201 → data: attendance record. 403 if outside the geofence/office network. */
+export async function markAttendance(req, res) {
+  const record = await meService.markMyAttendance(myEmployeeId(req), req.body, actor(req));
+  res.status(201).json(new ApiResponse('Attendance marked.', record));
+}
+
+/** GET /api/me/attendance — 200 → data: record[] (last 30 days by default) */
+export async function listAttendance(req, res) {
+  const data = await meService.listMyAttendance(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your attendance.', data));
+}

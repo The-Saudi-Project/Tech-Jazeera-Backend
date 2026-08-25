@@ -41,3 +41,26 @@ export const exportSchema = z.object({
   from: dateOnly,
   to: dateOnly,
 });
+
+/** P2-M3: the office geofence Admin configures. */
+export const officeLocationSchema = z.object({
+  name: optionalNote,
+  lat: z.coerce.number({ error: 'Latitude is required.' }).min(-90).max(90),
+  lng: z.coerce.number({ error: 'Longitude is required.' }).min(-180).max(180),
+  radiusMeters: z.coerce.number().int().min(10).max(5000).default(150),
+  allowedIps: z.array(z.string().trim().min(3).max(45)).max(10).default([]),
+});
+
+/** P2-M3: a Worker's self-mark. lat/lng are optional so an office-IP-only
+ *  check still works if the browser denied location access. */
+export const selfMarkSchema = z.object({
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
+  accuracy: z.coerce.number().min(0).optional(),
+});
+
+/** A Worker's own attendance history — range is optional (service defaults it). */
+export const listMyAttendanceSchema = z.object({
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
+});

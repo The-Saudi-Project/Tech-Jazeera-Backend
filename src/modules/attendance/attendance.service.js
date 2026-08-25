@@ -3,9 +3,11 @@
  */
 import mongoose from 'mongoose';
 import Attendance, { ATTENDANCE_STATUSES } from './attendance.model.js';
+import OfficeLocation from './officeLocation.model.js';
 import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { distanceMeters } from '../../utils/geo.js';
 
 /** Floor a `YYYY-MM-DD` (or Date) to UTC midnight — the canonical day value. */
 export function toUtcDay(input) {
@@ -36,7 +38,21 @@ export async function markBulk({ date, records }, actor) {
   const ops = records.map((r) => ({
     updateOne: {
       filter: { employee: r.employee, date: day },
-      update: { $set: { status: r.status, note: r.note ?? '' } },
+      // source: 'staff' is explicit and unconditional here — this is the
+      // "staff always wins" override (P2-M3): if today was previously
+      // self-marked, this asserts staff authority over it and clears the
+      // now-stale self-mark provenance, rather than leaving `source: 'self'`
+      // in place (which would silently defeat selfMark()'s protection
+      // against a Worker overwriting a staff-set record right back).
+      update: {
+        $set: {
+          status: r.status,
+          note: r.note ?? '',
+          source: 'staff',
+          verifiedBy: null,
+          selfMarkLocation: { lat: null, lng: null, accuracy: null, distanceMeters: null },
+        },
+      },
       upsert: true,
     },
   }));
@@ -108,4 +124,91 @@ export async function getSummary({ from, to, employee }) {
   ]);
 
   return { from, to, statuses: ATTENDANCE_STATUSES, rows };
+}
+
+/** The geofence config — Admin-only to view/set, null until first configured. */
+export async function getOfficeLocation() {
+  return OfficeLocation.findOne().lean();
+}
+
+export async function setOfficeLocation(data, actor) {
+  const loc = await OfficeLocation.findOneAndUpdate({}, data, {
+    new: true,
+    upsert: true,
+    runValidators: true,
+    setDefaultsOnInsert: true,
+  }).lean();
+  await logAudit({
+    user: actor.userId,
+    action: 'officeLocation.update',
+    targetType: 'OfficeLocation',
+    targetId: loc._id,
+    meta: { name: loc.name, radiusMeters: loc.radiusMeters, allowedIpCount: loc.allowedIps.length },
+    ip: actor.ip,
+  });
+  return loc;
+}
+
+/**
+ * A Worker marks their OWN attendance as Present, verified either by GPS
+ * geofence or by their request coming from an allow-listed office IP —
+ * P2-M3's replacement for "connect to the office WiFi" (browsers can't read
+ * a WiFi network's name, so this checks the actual network the request
+ * arrived from instead; see docs/P2-M3-notes.md for why).
+ *
+ * A record staff already set for today is NOT overwritten — self-mark is the
+ * primary path, but staff correction always wins (P2-M3 decision).
+ */
+export async function selfMark({ employeeId, lat, lng, accuracy }, actor) {
+  const office = await OfficeLocation.findOne().lean();
+  if (!office) {
+    throw new ApiError(400, 'Office location has not been set up yet — ask your Admin to configure it.');
+  }
+
+  const ipOk = office.allowedIps.includes(actor.ip);
+  let distance = null;
+  let geofenceOk = false;
+  if (lat != null && lng != null) {
+    distance = Math.round(distanceMeters(lat, lng, office.lat, office.lng));
+    geofenceOk = distance <= office.radiusMeters;
+  }
+
+  if (!geofenceOk && !ipOk) {
+    throw new ApiError(
+      403,
+      distance != null
+        ? `You're about ${distance}m from the office — within ${office.radiusMeters}m (or on the office network) is required to mark attendance.`
+        : 'Could not read your location. Enable location access and try again, or connect to the office network.'
+    );
+  }
+
+  const day = toUtcDay(new Date());
+  const existing = await Attendance.findOne({ employee: employeeId, date: day }).lean();
+  if (existing && existing.source === 'staff') {
+    throw new ApiError(409, "Today's attendance was already set by your office. Contact HR if this needs to change.");
+  }
+
+  const record = await Attendance.findOneAndUpdate(
+    { employee: employeeId, date: day },
+    {
+      $set: {
+        status: 'Present',
+        source: 'self',
+        verifiedBy: geofenceOk ? 'geofence' : 'officeIp',
+        selfMarkLocation: { lat: lat ?? null, lng: lng ?? null, accuracy: accuracy ?? null, distanceMeters: distance },
+      },
+    },
+    { new: true, upsert: true, runValidators: true }
+  ).lean();
+
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.selfmark',
+    targetType: 'Attendance',
+    targetId: record._id,
+    meta: { date: day.toISOString().slice(0, 10), verifiedBy: record.verifiedBy, distanceMeters: distance },
+    ip: actor.ip,
+  });
+
+  return record;
 }

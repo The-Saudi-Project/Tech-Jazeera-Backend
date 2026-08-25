@@ -14,6 +14,7 @@ import {
   listMyLeaveRequestsSchema,
   leaveRequestIdParamSchema,
 } from '../leave/leave.validation.js';
+import { selfMarkSchema, listMyAttendanceSchema } from '../attendance/attendance.validation.js';
 import * as meController from './me.controller.js';
 
 const router = Router();
@@ -34,6 +35,17 @@ router.patch(
   '/leave/:id/cancel',
   validate({ params: leaveRequestIdParamSchema }),
   asyncHandler(meController.cancelLeave)
+);
+
+router.post(
+  '/attendance',
+  validate({ body: selfMarkSchema }),
+  asyncHandler(meController.markAttendance)
+);
+router.get(
+  '/attendance',
+  validate({ query: listMyAttendanceSchema }),
+  asyncHandler(meController.listAttendance)
 );
 
 export default router;

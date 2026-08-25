@@ -47,3 +47,15 @@ export async function exportSummary(req, res) {
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(buffer);
 }
+
+/** GET /api/attendance/office-location   (Admin) — 200 → data: location | null */
+export async function getOfficeLocation(req, res) {
+  const data = await attendanceService.getOfficeLocation();
+  res.json(new ApiResponse('Office location.', data));
+}
+
+/** PATCH /api/attendance/office-location   (Admin) — 200 → data: location */
+export async function updateOfficeLocation(req, res) {
+  const data = await attendanceService.setOfficeLocation(req.body, actor(req));
+  res.json(new ApiResponse('Office location saved.', data));
+}

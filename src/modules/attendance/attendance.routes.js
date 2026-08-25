@@ -15,6 +15,7 @@ import {
   listAttendanceSchema,
   summarySchema,
   exportSchema,
+  officeLocationSchema,
 } from './attendance.validation.js';
 import * as attendanceController from './attendance.controller.js';
 
@@ -39,6 +40,16 @@ router.get(
   '/export',
   validate({ query: exportSchema }),
   asyncHandler(attendanceController.exportSummary)
+);
+
+// P2-M3: the geofence Workers' self-marked attendance is checked against.
+// Admin-only — it's a security-relevant setting, not a day-to-day action.
+router.get('/office-location', requireRoles('Admin'), asyncHandler(attendanceController.getOfficeLocation));
+router.patch(
+  '/office-location',
+  requireRoles('Admin'),
+  validate({ body: officeLocationSchema }),
+  asyncHandler(attendanceController.updateOfficeLocation)
 );
 
 export default router;
