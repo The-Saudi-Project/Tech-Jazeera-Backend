@@ -9,10 +9,18 @@ import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireStaff } from '../../middleware/rbac.js';
+import { validate } from '../../middleware/validate.js';
+import { dashboardQuerySchema } from './dashboard.validation.js';
 import * as dashboardController from './dashboard.controller.js';
 
 const router = Router();
 
-router.get('/', requireAuth, requireStaff, asyncHandler(dashboardController.overview));
+router.get(
+  '/',
+  requireAuth,
+  requireStaff,
+  validate({ query: dashboardQuerySchema }),
+  asyncHandler(dashboardController.overview)
+);
 
 export default router;

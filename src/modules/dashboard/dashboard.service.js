@@ -19,7 +19,7 @@ import Quotation from '../quotations/quotation.model.js';
 import Document from '../documents/document.model.js';
 import AuditLog from '../audit/audit.model.js';
 
-const EXPIRY_WARNING_DAYS = 30;
+export const EXPIRY_WARNING_DAYS = 30;
 
 /** Employee identity documents whose expiry we surface on the dashboard. */
 const IDENTITY_DOCS = [
@@ -32,11 +32,32 @@ const IDENTITY_DOCS = [
 
 const daysUntil = (date) => Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
 
-export async function getDashboard() {
-  const threshold = new Date(Date.now() + EXPIRY_WARNING_DAYS * 86_400_000);
+/**
+ * @param {object} [opts]
+ * @param {number} [opts.thresholdDays] override the 30-day alert window (P2-M2,
+ *   customizable per viewer — mirrors the same param on the employee list)
+ * @param {{role: string, userId: string}} [opts.actor] when actor.role is
+ *   'Coordinator', the expiring-documents alert list is scoped to only their
+ *   assigned employees — every other figure (workforce counts, payroll,
+ *   clients, quotations) stays company-wide, unchanged from Phase 1
+ */
+export async function getDashboard({ thresholdDays, actor } = {}) {
+  const days = thresholdDays ?? EXPIRY_WARNING_DAYS;
+  const threshold = new Date(Date.now() + days * 86_400_000);
   const identityExpiryOr = IDENTITY_DOCS.map(([key]) => ({
     [`${key}.expiry`]: { $ne: null, $lte: threshold },
   }));
+
+  // P2-M2: a Coordinator's alert list is their own team only. Computed once,
+  // ahead of the parallel batch below, so both the Employee and Document
+  // expiry queries can use the same scope.
+  const teamIds = actor?.role === 'Coordinator' ? await Employee.find({ coordinator: actor.userId }).distinct('_id') : null;
+
+  const employeeExpiryFilter = { status: { $ne: 'Exited' }, $or: identityExpiryOr };
+  if (teamIds) employeeExpiryFilter._id = { $in: teamIds };
+
+  const documentExpiryFilter = { expiryDate: { $ne: null, $lte: threshold } };
+  if (teamIds) Object.assign(documentExpiryFilter, { ownerType: 'Employee', owner: { $in: teamIds } });
 
   const [
     deployedActive,
@@ -58,10 +79,10 @@ export async function getDashboard() {
     Quotation.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$grandTotal' } } },
     ]),
-    Employee.find({ status: { $ne: 'Exited' }, $or: identityExpiryOr })
+    Employee.find(employeeExpiryFilter)
       .select('fullName employeeId passport visa iqama medical drivingLicense')
       .lean(),
-    Document.find({ expiryDate: { $ne: null, $lte: threshold } })
+    Document.find(documentExpiryFilter)
       .populate('owner', 'fullName companyName')
       .limit(50)
       .lean(),

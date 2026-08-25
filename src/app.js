@@ -37,6 +37,9 @@ import timesheetProcessorRoutes from './modules/timesheetProcessor/timesheet.rou
 import nfcRoutes from './modules/nfc/nfc.routes.js';
 import nfcPublicRoutes from './modules/nfc/nfc.public.routes.js';
 import { serveNfcMedia } from './modules/nfc/nfc.upload.js';
+import userRoutes from './modules/users/user.routes.js';
+import leaveRoutes from './modules/leave/leave.routes.js';
+import meRoutes from './modules/me/me.routes.js';
 
 const app = express();
 
@@ -84,6 +87,11 @@ app.use('/api/quotations', quotationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/timesheet-processor', timesheetProcessorRoutes);
 app.use('/api/nfc', nfcRoutes);
+// P2-M2: staff-account management, leave (types + requests), and the
+// self-service "me" surface a Worker's ESS portal runs on.
+app.use('/api/users', userRoutes);
+app.use('/api', leaveRoutes); // owns /api/leave-types and /api/leave
+app.use('/api/me', meRoutes);
 
 // Public NFC tap pages — server-rendered HTML, NOT under /api (no auth, own
 // rate limiter). Must be mounted before the 404 handler.

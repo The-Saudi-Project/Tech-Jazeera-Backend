@@ -19,8 +19,26 @@ import mongoose from 'mongoose';
  * with a login that can see ONLY their own data. It is deliberately the last
  * entry and the odd one out — every OTHER role is "staff" (see STAFF_ROLES in
  * the rbac middleware), and the admin modules are staff-only.
+ *
+ * `Coordinator` (added in P2-M2) is staff, but scoped: they see and act on
+ * only the Employees assigned to them (Employee.coordinator), not the whole
+ * company. Everything else (Admin, Manager, HR, Operations, Accounts, Viewer)
+ * keeps its existing company-wide visibility — adding Coordinator does not
+ * narrow anyone else's access.
  */
-export const ROLES = ['Admin', 'Manager', 'HR', 'Operations', 'Accounts', 'Viewer', 'Worker'];
+export const ROLES = [
+  'Admin',
+  'Manager',
+  'HR',
+  'Operations',
+  'Accounts',
+  'Viewer',
+  'Coordinator',
+  'Worker',
+];
+
+/** Roles that can be a Coordinator's line manager via `managedBy`. */
+export const COORDINATOR_MANAGER_ROLES = ['Admin', 'Manager'];
 
 const userSchema = new mongoose.Schema(
   {
@@ -38,6 +56,10 @@ const userSchema = new mongoose.Schema(
     // staff (an accountant is a User with no Employee). A Worker's login maps
     // to exactly ONE employee — enforced by the partial unique index below.
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', default: null },
+    // P2-M2: only meaningful when role === 'Coordinator' — the Admin/Manager
+    // this coordinator reports to. Lets a Manager's "My Team" view include
+    // their coordinators' employees, not just employees they hold directly.
+    managedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );

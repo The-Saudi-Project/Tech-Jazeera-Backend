@@ -32,23 +32,21 @@ function escapeRegex(text) {
 
 /**
  * Paginated, searchable, sortable listing.
- * search  → case-insensitive match on name / employeeId / mobile / email
- * status  → exact match
- * alerts  → 'true' keeps only employees with a document expiring within
- *           EXPIRY_WARNING_DAYS (or already expired)
- * client  → only employees currently assigned to that client
+ * search       → case-insensitive match on name / employeeId / mobile / email
+ * status       → exact match
+ * alerts       → 'true' keeps only employees with a document expiring within
+ *                thresholdDays (default EXPIRY_WARNING_DAYS), or already expired
+ * thresholdDays→ override the alert window (P2-M2, customizable per viewer)
+ * client       → only employees currently assigned to that client
+ * team         → 'mine' (Manager only) — only employees under their coordinators
+ *
+ * `actor` (role + userId) is optional so internal callers (e.g. a future
+ * script) can still list company-wide; every HTTP call supplies it.
  */
-export async function listEmployees({
-  page,
-  limit,
-  search,
-  status,
-  alerts,
-  client,
-  unassigned,
-  sortBy,
-  sortOrder,
-}) {
+export async function listEmployees(
+  { page, limit, search, status, alerts, thresholdDays, client, unassigned, team, sortBy, sortOrder },
+  actor
+) {
   // Each condition is AND-ed; search and alerts are each internally OR-ed.
   const conditions = [];
   if (search) {
@@ -61,10 +59,24 @@ export async function listEmployees({
   if (client) conditions.push({ currentClient: client });
   if (unassigned === 'true') conditions.push({ currentClient: null });
   if (alerts === 'true') {
-    const threshold = new Date(Date.now() + EXPIRY_WARNING_DAYS * 24 * 60 * 60 * 1000);
+    const days = thresholdDays ?? EXPIRY_WARNING_DAYS;
+    const threshold = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     // $lte against a Date matches only real dates — documents with no expiry
     // (null/absent) are naturally excluded.
     conditions.push({ $or: EXPIRY_FIELDS.map((field) => ({ [field]: { $lte: threshold } })) });
+  }
+  // P2-M2: a Coordinator only ever sees their own assigned employees — this is
+  // not a filter the caller can opt out of. A Manager may narrow to their
+  // coordinators' teams with team=mine; without it a Manager keeps the
+  // existing company-wide view (adding Coordinator must not shrink anyone
+  // else's established access).
+  if (actor?.role === 'Coordinator') {
+    conditions.push({ coordinator: actor.userId });
+  } else if (actor?.role === 'Manager' && team === 'mine') {
+    const coordinatorIds = await User.find({ role: 'Coordinator', managedBy: actor.userId }).distinct(
+      '_id'
+    );
+    conditions.push({ coordinator: { $in: coordinatorIds } });
   }
   const filter = conditions.length > 0 ? { $and: conditions } : {};
 
@@ -79,11 +91,21 @@ export async function listEmployees({
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-export async function getEmployee(id) {
-  // Populate the current client's name so the profile can show/link it rather
-  // than a raw id. currentClient is set by the deployment workflow (M6).
-  const employee = await Employee.findById(id).populate('currentClient', 'companyName').lean();
+export async function getEmployee(id, actor) {
+  // Populate the current client's name, and the assigned coordinator's name
+  // (P2-M2), so the profile can show/link both rather than a raw id.
+  // currentClient is set by the deployment workflow (M6).
+  const employee = await Employee.findById(id)
+    .populate('currentClient', 'companyName')
+    .populate('coordinator', 'name email')
+    .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
+  // P2-M2: a Coordinator may only open employees assigned to them — everyone
+  // else's existing access (Admin/Manager/HR/Operations/Accounts/Viewer see
+  // everyone) is unchanged.
+  if (actor?.role === 'Coordinator' && employee.coordinator?._id?.toString() !== actor.userId) {
+    throw new ApiError(403, 'You do not have access to this employee.');
+  }
   // P2-M1: surface whether this employee has a login so the profile can show
   // account status (and hide "create login" once one exists) without a second
   // round-trip. Minimal, non-sensitive fields only — never the hash.
@@ -92,6 +114,15 @@ export async function getEmployee(id) {
     ? { id: login._id.toString(), email: login.email, role: login.role, isActive: login.isActive }
     : null;
   return employee;
+}
+
+/** The assigned coordinator, if any, must actually be a 'Coordinator' user. */
+async function assertValidCoordinator(coordinatorId) {
+  if (!coordinatorId) return;
+  const coordinator = await User.findById(coordinatorId).lean();
+  if (!coordinator || coordinator.role !== 'Coordinator') {
+    throw new ApiError(400, 'Selected coordinator is not a valid Coordinator account.');
+  }
 }
 
 /**
@@ -152,6 +183,7 @@ export async function createEmployeeLogin(employeeId, { email }, actor) {
 
 /** Duplicate employeeId is caught by the unique index → 409 via errorHandler. */
 export async function createEmployee(data, actor) {
+  await assertValidCoordinator(data.coordinator);
   const employee = await Employee.create(data);
   await logAudit({
     user: actor.userId,
@@ -165,6 +197,7 @@ export async function createEmployee(data, actor) {
 }
 
 export async function updateEmployee(id, data, actor) {
+  if ('coordinator' in data) await assertValidCoordinator(data.coordinator);
   const employee = await Employee.findByIdAndUpdate(id, data, {
     new: true, // return the updated document, not the stale one
     runValidators: true, // Mongoose skips schema validation on updates unless told

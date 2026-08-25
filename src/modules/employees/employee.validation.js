@@ -14,6 +14,13 @@ const emptyToUndef = (value) =>
 const optionalStr = (max) => z.preprocess(emptyToUndef, z.string().trim().max(max).optional());
 const optionalDate = z.preprocess(emptyToUndef, z.coerce.date().optional());
 
+/** Like an objectId field, but "" means "unassign" (null), not "untouched". */
+const nullableObjectId = (label) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().regex(/^[a-f0-9]{24}$/i, `Invalid ${label} id.`).nullable().optional()
+  );
+
 // Loose international phone shape — real-world numbers are messy; we only
 // reject obvious garbage, we don't try to fully parse them.
 const phone = z
@@ -66,6 +73,10 @@ export const createEmployeeSchema = z.object({
     })
     .optional(),
   notes: optionalStr(2000),
+  // P2-M2: the Coordinator responsible for this employee. Admin/Manager/HR
+  // assign it (same write circle as the rest of the record); referential
+  // integrity (must be a real 'Coordinator' user) is checked in the service.
+  coordinator: nullableObjectId('coordinator'),
   // NOTE: currentClient / currentSite are deliberately absent — they are set
   // by the deployment workflow (M6), and unknown keys are stripped by Zod,
   // so a hand-crafted request can't smuggle an assignment through this form.
@@ -91,6 +102,12 @@ export const listEmployeesSchema = z.object({
   // 'true' → only workers with no current client (assignable). Powers the
   // deployment assign form's worker picker (M6).
   unassigned: z.preprocess(emptyToUndef, z.enum(['true', 'false']).optional()),
+  // P2-M2: a Manager passes 'mine' to see only their coordinators' employees.
+  // A Coordinator is scoped to their own team automatically — no param needed.
+  team: z.preprocess(emptyToUndef, z.enum(['mine']).optional()),
+  // P2-M2: override the default 30-day expiry-alert window (customizable per
+  // viewer — see docs/P2-M2-notes.md). Only meaningful together with alerts=true.
+  thresholdDays: z.preprocess(emptyToUndef, z.coerce.number().int().min(1).max(365).optional()),
   sortBy: z.enum(['fullName', 'joiningDate', 'createdAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });

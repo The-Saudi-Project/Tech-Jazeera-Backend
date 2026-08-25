@@ -57,6 +57,13 @@ const employeeSchema = new mongoose.Schema(
     currentClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
     currentSite: { type: String, trim: true, default: null },
 
+    // P2-M2: the Coordinator user responsible for this employee's day-to-day
+    // (leave decisions, expiry follow-up). Optional — HR/Manager/Admin assign
+    // it from the employee form, same write circle as the rest of the record.
+    // Referential integrity (must actually be a 'Coordinator' user) is checked
+    // in the service layer, not here — Mongoose refs don't validate the target.
+    coordinator: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
     status: { type: String, enum: EMPLOYEE_STATUSES, default: 'Active' },
 
     emergencyContact: {
@@ -72,5 +79,7 @@ const employeeSchema = new mongoose.Schema(
 // The list screen sorts by these; without indexes every sort is a full scan.
 employeeSchema.index({ fullName: 1 });
 employeeSchema.index({ createdAt: -1 });
+// A coordinator's team, and the "my team" scoping filter (P2-M2).
+employeeSchema.index({ coordinator: 1 });
 
 export default mongoose.model('Employee', employeeSchema);
