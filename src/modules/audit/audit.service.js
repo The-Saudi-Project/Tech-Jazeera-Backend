@@ -26,19 +26,33 @@ export async function logAudit(entry) {
   }
 }
 
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Paginated audit listing for the admin screen, newest first.
+ * Paginated audit listing for the Security Log screen, newest first.
+ * action → substring match on the dot-namespaced verb (e.g. "nfc" matches
+ * every nfc.* action). from/to → inclusive date range on createdAt.
  * @returns {Promise<{items: object[], total: number, page: number, pages: number}>}
  */
-export async function listAuditLogs({ page = 1, limit = 20 }) {
+export async function listAuditLogs({ page = 1, limit = 20, action, from, to }) {
+  const filter = {};
+  if (action) filter.action = { $regex: escapeRegex(action), $options: 'i' };
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = from;
+    if (to) filter.createdAt.$lte = to;
+  }
+
   const [items, total] = await Promise.all([
-    AuditLog.find()
+    AuditLog.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('user', 'name email role') // show who acted, not just an id
       .lean(),
-    AuditLog.countDocuments(),
+    AuditLog.countDocuments(filter),
   ]);
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
