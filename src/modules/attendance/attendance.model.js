@@ -14,8 +14,13 @@
  *  - P2-M3: `source`/`verifiedBy`/`selfMarkLocation` record how a record came
  *    to exist. Self-marking is the Worker's own geofence-verified check-in;
  *    staff marking (the original M7 flow) remains the backup/override — see
- *    attendance.service.js's selfMark() for why a staff-set record can't be
- *    silently overwritten by a later self-mark.
+ *    attendance.service.js's selfCheckIn()/selfCheckOut() for why a staff-set
+ *    record can't be silently overwritten by a later self check-in.
+ *  - `checkInTime`/`checkOutTime`/`hoursWorked`: only ever set by a Worker's
+ *    own self check-in/out (staff bulk-marking a day clears them — a staff
+ *    override has no clock times to show). `hoursWorked` is computed once,
+ *    at checkout, and stored rather than derived on read — it's a durable
+ *    fact about that day, same reasoning as the snapshot fields elsewhere.
  */
 import mongoose from 'mongoose';
 
@@ -37,6 +42,9 @@ const attendanceSchema = new mongoose.Schema(
       accuracy: { type: Number, default: null }, // meters, as reported by the device
       distanceMeters: { type: Number, default: null }, // computed distance from the office
     },
+    checkInTime: { type: Date, default: null },
+    checkOutTime: { type: Date, default: null },
+    hoursWorked: { type: Number, default: null }, // (checkOutTime - checkInTime) in hours, 2dp
   },
   { timestamps: true }
 );

@@ -1,9 +1,11 @@
 /**
  * Attendance service — marking, views, and summary aggregation.
  */
+import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import Attendance, { ATTENDANCE_STATUSES } from './attendance.model.js';
 import OfficeLocation from './officeLocation.model.js';
+import TapPoint from './tapPoint.model.js';
 import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -42,7 +44,7 @@ export async function markBulk({ date, records }, actor) {
       // "staff always wins" override (P2-M3): if today was previously
       // self-marked, this asserts staff authority over it and clears the
       // now-stale self-mark provenance, rather than leaving `source: 'self'`
-      // in place (which would silently defeat selfMark()'s protection
+      // in place (which would silently defeat selfCheckIn()'s protection
       // against a Worker overwriting a staff-set record right back).
       update: {
         $set: {
@@ -51,6 +53,12 @@ export async function markBulk({ date, records }, actor) {
           source: 'staff',
           verifiedBy: null,
           selfMarkLocation: { lat: null, lng: null, accuracy: null, distanceMeters: null },
+          // A staff override has no clock times to show — clear any check-in/out
+          // a Worker had in progress for this day, same "staff always wins" reasoning
+          // as the fields above (a stale open check-in must not survive a staff write).
+          checkInTime: null,
+          checkOutTime: null,
+          hoursWorked: null,
         },
       },
       upsert: true,
@@ -150,21 +158,15 @@ export async function setOfficeLocation(data, actor) {
 }
 
 /**
- * A Worker marks their OWN attendance as Present, verified either by GPS
+ * Verify a Worker's location against the configured office, either by GPS
  * geofence or by their request coming from an allow-listed office IP —
  * P2-M3's replacement for "connect to the office WiFi" (browsers can't read
  * a WiFi network's name, so this checks the actual network the request
- * arrived from instead; see docs/P2-M3-notes.md for why).
- *
- * A record staff already set for today is NOT overwritten — self-mark is the
- * primary path, but staff correction always wins (P2-M3 decision).
+ * arrived from instead; see docs/P2-M3-notes.md for why). Shared by both
+ * check-in and check-out — hours only mean something if both ends of the
+ * shift were verified, not just the start.
  */
-export async function selfMark({ employeeId, lat, lng, accuracy }, actor) {
-  const office = await OfficeLocation.findOne().lean();
-  if (!office) {
-    throw new ApiError(400, 'Office location has not been set up yet — ask your Admin to configure it.');
-  }
-
+function verifyOfficeLocation(office, { lat, lng }, actor) {
   const ipOk = office.allowedIps.includes(actor.ip);
   let distance = null;
   let geofenceOk = false;
@@ -177,25 +179,65 @@ export async function selfMark({ employeeId, lat, lng, accuracy }, actor) {
     throw new ApiError(
       403,
       distance != null
-        ? `You're about ${distance}m from the office — within ${office.radiusMeters}m (or on the office network) is required to mark attendance.`
+        ? `You're about ${distance}m from the office — within ${office.radiusMeters}m (or on the office network) is required.`
         : 'Could not read your location. Enable location access and try again, or connect to the office network.'
     );
+  }
+  return { verifiedBy: geofenceOk ? 'geofence' : 'officeIp', distance };
+}
+
+async function requireOfficeLocation() {
+  const office = await OfficeLocation.findOne().lean();
+  if (!office) {
+    throw new ApiError(400, 'Office location has not been set up yet — ask your Admin to configure it.');
+  }
+  return office;
+}
+
+/**
+ * A Worker signs themselves IN for the day — verified either by GPS geofence
+ * or office-IP (see verifyOfficeLocation). Marks the day Present and opens a
+ * shift; selfCheckOut() closes it and computes the hours worked.
+ *
+ * A record staff already set for today is NOT overwritten — self check-in is
+ * the primary path, but staff correction always wins (P2-M3 decision). A
+ * worker who already completed today's shift (checked out) can't check in
+ * again — one shift per calendar day, matching the one-record-per-day model.
+ */
+export async function selfCheckIn({ employeeId, lat, lng, accuracy }, actor) {
+  const office = await requireOfficeLocation();
+  const { verifiedBy, distance } = verifyOfficeLocation(office, { lat, lng }, actor);
+
+  const openShift = await Attendance.findOne({
+    employee: employeeId,
+    checkInTime: { $ne: null },
+    checkOutTime: null,
+  }).lean();
+  if (openShift) {
+    throw new ApiError(409, "You're already signed in — sign out before signing in again.");
   }
 
   const day = toUtcDay(new Date());
   const existing = await Attendance.findOne({ employee: employeeId, date: day }).lean();
-  if (existing && existing.source === 'staff') {
+  if (existing?.source === 'staff') {
     throw new ApiError(409, "Today's attendance was already set by your office. Contact HR if this needs to change.");
   }
+  if (existing?.checkOutTime) {
+    throw new ApiError(409, `You've already completed today's shift (${existing.hoursWorked} hrs).`);
+  }
 
+  const now = new Date();
   const record = await Attendance.findOneAndUpdate(
     { employee: employeeId, date: day },
     {
       $set: {
         status: 'Present',
         source: 'self',
-        verifiedBy: geofenceOk ? 'geofence' : 'officeIp',
+        verifiedBy,
         selfMarkLocation: { lat: lat ?? null, lng: lng ?? null, accuracy: accuracy ?? null, distanceMeters: distance },
+        checkInTime: now,
+        checkOutTime: null,
+        hoursWorked: null,
       },
     },
     { new: true, upsert: true, runValidators: true }
@@ -203,12 +245,166 @@ export async function selfMark({ employeeId, lat, lng, accuracy }, actor) {
 
   await logAudit({
     user: actor.userId,
-    action: 'attendance.selfmark',
+    action: 'attendance.checkin',
     targetType: 'Attendance',
     targetId: record._id,
-    meta: { date: day.toISOString().slice(0, 10), verifiedBy: record.verifiedBy, distanceMeters: distance },
+    meta: { date: day.toISOString().slice(0, 10), verifiedBy, distanceMeters: distance },
     ip: actor.ip,
   });
 
   return record;
+}
+
+/**
+ * A Worker signs themselves OUT, closing the shift selfCheckIn() opened and
+ * computing hoursWorked. Finds the most recent open shift rather than
+ * strictly "today's" record so an overnight shift (check in before midnight,
+ * out after) still closes correctly.
+ */
+export async function selfCheckOut({ employeeId, lat, lng, accuracy }, actor) {
+  const office = await requireOfficeLocation();
+  verifyOfficeLocation(office, { lat, lng }, actor); // throws if not at/near the office
+
+  const openShift = await Attendance.findOne({
+    employee: employeeId,
+    checkInTime: { $ne: null },
+    checkOutTime: null,
+  }).sort({ checkInTime: -1 });
+  if (!openShift) {
+    throw new ApiError(400, "You haven't signed in yet today.");
+  }
+
+  const now = new Date();
+  const hoursWorked = Math.round(((now - openShift.checkInTime) / 3_600_000) * 100) / 100;
+  const record = await Attendance.findByIdAndUpdate(
+    openShift._id,
+    { $set: { checkOutTime: now, hoursWorked } },
+    { new: true, runValidators: true }
+  ).lean();
+
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.checkout',
+    targetType: 'Attendance',
+    targetId: record._id,
+    meta: { hoursWorked },
+    ip: actor.ip,
+  });
+
+  return record;
+}
+
+// -------------------------------------------------------------- Tap points
+
+function generateTapToken() {
+  return crypto.randomBytes(12).toString('base64url'); // 16 chars, URL-safe
+}
+
+async function uniqueTapToken() {
+  let token = generateTapToken();
+  while (await TapPoint.exists({ token })) token = generateTapToken(); // astronomically unlikely, guarded anyway
+  return token;
+}
+
+/** Physical NFC tap points (e.g. one per room) a Worker can tap to sign in/out. */
+export async function listTapPoints() {
+  return TapPoint.find().sort({ name: 1 }).lean();
+}
+
+export async function createTapPoint({ name }, actor) {
+  const token = await uniqueTapToken();
+  const point = await TapPoint.create({ name, token });
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.tapPoint.create',
+    targetType: 'TapPoint',
+    targetId: point._id,
+    meta: { name },
+    ip: actor.ip,
+  });
+  return point.toObject();
+}
+
+export async function updateTapPoint(id, data, actor) {
+  const point = await TapPoint.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+  if (!point) throw new ApiError(404, 'Tap point not found.');
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.tapPoint.update',
+    targetType: 'TapPoint',
+    targetId: id,
+    meta: { fields: Object.keys(data) },
+    ip: actor.ip,
+  });
+  return point;
+}
+
+/** New token → the old URL dies immediately; the physical chip must be rewritten. */
+export async function rotateTapPointToken(id, actor) {
+  const point = await TapPoint.findById(id);
+  if (!point) throw new ApiError(404, 'Tap point not found.');
+  point.token = await uniqueTapToken();
+  await point.save();
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.tapPoint.rotate',
+    targetType: 'TapPoint',
+    targetId: id,
+    ip: actor.ip,
+  });
+  return point.toObject();
+}
+
+export async function deleteTapPoint(id, actor) {
+  const point = await TapPoint.findByIdAndDelete(id).lean();
+  if (!point) throw new ApiError(404, 'Tap point not found.');
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.tapPoint.delete',
+    targetType: 'TapPoint',
+    targetId: id,
+    meta: { name: point.name },
+    ip: actor.ip,
+  });
+}
+
+/**
+ * A Worker taps a physical NFC tag (e.g. at a room entrance) instead of
+ * pressing the Sign in/Sign out button in the app — same underlying
+ * check-in/out, same geofence/office-IP verification, just triggered by a
+ * tap. Toggles on whether the Worker already has a shift open: no open shift
+ * → check in, open shift → check out. For the normal one-in/one-out day that
+ * IS "first tap of the day, last tap of the day"; a third tap the same day
+ * just hits selfCheckIn's own "already completed today" guard, same as the
+ * button would. Deliberately doesn't care WHICH tap point was used (P2-M3+
+ * decision: overall presence, not room occupancy) — the point's name is
+ * logged for audit-trail context only.
+ */
+export async function selfTap({ employeeId, token, lat, lng, accuracy }, actor) {
+  const point = await TapPoint.findOne({ token, active: true }).lean();
+  if (!point) {
+    throw new ApiError(404, 'This tap point was not recognized. Ask your Admin to check it.');
+  }
+
+  const openShift = await Attendance.findOne({
+    employee: employeeId,
+    checkInTime: { $ne: null },
+    checkOutTime: null,
+  }).lean();
+
+  const action = openShift ? 'checked-out' : 'checked-in';
+  const record = openShift
+    ? await selfCheckOut({ employeeId, lat, lng, accuracy }, actor)
+    : await selfCheckIn({ employeeId, lat, lng, accuracy }, actor);
+
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.tap',
+    targetType: 'Attendance',
+    targetId: record._id,
+    meta: { tapPoint: point.name, action },
+    ip: actor.ip,
+  });
+
+  return { action, record, tapPoint: point.name };
 }

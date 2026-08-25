@@ -16,6 +16,9 @@ import {
   summarySchema,
   exportSchema,
   officeLocationSchema,
+  createTapPointSchema,
+  updateTapPointSchema,
+  tapPointIdParamSchema,
 } from './attendance.validation.js';
 import * as attendanceController from './attendance.controller.js';
 
@@ -50,6 +53,35 @@ router.patch(
   requireRoles('Admin'),
   validate({ body: officeLocationSchema }),
   asyncHandler(attendanceController.updateOfficeLocation)
+);
+
+// P2-M3+: physical NFC tap points (e.g. one per room) a Worker taps to sign
+// in/out. Admin-only — creating one mints a working URL, same security
+// weight as the geofence config.
+router.get('/tap-points', requireRoles('Admin'), asyncHandler(attendanceController.listTapPoints));
+router.post(
+  '/tap-points',
+  requireRoles('Admin'),
+  validate({ body: createTapPointSchema }),
+  asyncHandler(attendanceController.createTapPoint)
+);
+router.patch(
+  '/tap-points/:id',
+  requireRoles('Admin'),
+  validate({ params: tapPointIdParamSchema, body: updateTapPointSchema }),
+  asyncHandler(attendanceController.updateTapPoint)
+);
+router.post(
+  '/tap-points/:id/rotate',
+  requireRoles('Admin'),
+  validate({ params: tapPointIdParamSchema }),
+  asyncHandler(attendanceController.rotateTapPointToken)
+);
+router.delete(
+  '/tap-points/:id',
+  requireRoles('Admin'),
+  validate({ params: tapPointIdParamSchema }),
+  asyncHandler(attendanceController.deleteTapPoint)
 );
 
 export default router;
