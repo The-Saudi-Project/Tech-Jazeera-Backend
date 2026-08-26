@@ -49,16 +49,8 @@ export async function cancelMyLeave(employeeId, leaveRequestId, actor) {
   return leaveService.cancelLeaveRequest(leaveRequestId, { ...actor, employee: employeeId });
 }
 
-export async function checkInMyAttendance(employeeId, body, actor) {
-  return attendanceService.selfCheckIn({ employeeId, ...body }, actor);
-}
-
-export async function checkOutMyAttendance(employeeId, body, actor) {
-  return attendanceService.selfCheckOut({ employeeId, ...body }, actor);
-}
-
-export async function tapMyAttendance(employeeId, body, actor) {
-  return attendanceService.selfTap({ employeeId, ...body }, actor);
+export async function punchMyAttendance(employeeId, body, actor) {
+  return attendanceService.selfPunch({ employeeId, ...body }, actor);
 }
 
 /** Own attendance history — defaults to the last 30 days when no range is given. */

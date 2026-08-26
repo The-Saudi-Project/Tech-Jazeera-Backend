@@ -53,6 +53,13 @@ const employeeSchema = new mongoose.Schema(
     salary: { type: Number, required: true, min: 0 },
     accommodation: { type: String, trim: true },
 
+    // The minimum shift length before My Attendance warns this Worker on an
+    // early sign-out (e.g. 9.5). Per-employee because it genuinely varies by
+    // role/contract — null means no warning is shown for them at all, not a
+    // fallback to some hardcoded company-wide number. Set by Admin/Manager/HR
+    // from the employee form, same write circle as the rest of the record.
+    expectedDailyHours: { type: Number, default: null, min: 0, max: 24 },
+
     // Managed by the deployment workflow from M6 — never set via the HR form.
     currentClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
     currentSite: { type: String, trim: true, default: null },

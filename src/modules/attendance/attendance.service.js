@@ -1,11 +1,9 @@
 /**
  * Attendance service — marking, views, and summary aggregation.
  */
-import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import Attendance, { ATTENDANCE_STATUSES } from './attendance.model.js';
 import OfficeLocation from './officeLocation.model.js';
-import TapPoint from './tapPoint.model.js';
 import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -195,42 +193,49 @@ async function requireOfficeLocation() {
 }
 
 /**
- * A Worker signs themselves IN for the day — verified either by GPS geofence
- * or office-IP (see verifyOfficeLocation). Marks the day Present and opens a
- * shift; selfCheckOut() closes it and computes the hours worked.
+ * A Worker records a "punch" via the Sign in/Sign out buttons in My
+ * Attendance:
  *
- * A record staff already set for today is NOT overwritten — self check-in is
- * the primary path, but staff correction always wins (P2-M3 decision). A
- * worker who already completed today's shift (checked out) can't check in
- * again — one shift per calendar day, matching the one-record-per-day model.
+ *   - The FIRST punch of the day sets checkInTime and marks the day Present.
+ *     checkInTime never changes again for that day.
+ *   - EVERY punch after that pushes checkOutTime forward to now and
+ *     recomputes hoursWorked from the fixed checkInTime. There is no
+ *     "closed" state and no error for punching again — a worker can leave
+ *     for an errand, come back, and punch any number of times without it
+ *     failing. Only the very first and very last punch of the day end up
+ *     mattering for hoursWorked.
+ *
+ * (An earlier version modeled a single open/closed "shift" that had to be
+ * checked in before it could be checked out, and couldn't be reopened once
+ * closed — replaced because "sign out then sign in again" needed to just
+ * work, not 409. A physical-NFC-tap variant of this was also built and then
+ * reverted at the user's request — scope is in-app buttons only; see git
+ * history before this revert if a tap-based flow is ever wanted again.)
+ *
+ * KNOWN LIMITATION, accepted deliberately: because only the first and last
+ * punch count, an unaccounted gap — leaving for three hours without
+ * punching again until the end of the day — is invisible. hoursWorked will
+ * include that gap. This is the tradeoff for letting a worker punch freely
+ * without the app erroring if they sign out and back in the same day.
+ *
+ * A record staff already set for today is NOT overwritten — self-punching is
+ * the primary path, but staff correction always wins (P2-M3 decision).
  */
-export async function selfCheckIn({ employeeId, lat, lng, accuracy }, actor) {
+export async function selfPunch({ employeeId, lat, lng, accuracy }, actor) {
   const office = await requireOfficeLocation();
   const { verifiedBy, distance } = verifyOfficeLocation(office, { lat, lng }, actor);
-
-  const openShift = await Attendance.findOne({
-    employee: employeeId,
-    checkInTime: { $ne: null },
-    checkOutTime: null,
-  }).lean();
-  if (openShift) {
-    throw new ApiError(409, "You're already signed in — sign out before signing in again.");
-  }
 
   const day = toUtcDay(new Date());
   const existing = await Attendance.findOne({ employee: employeeId, date: day }).lean();
   if (existing?.source === 'staff') {
     throw new ApiError(409, "Today's attendance was already set by your office. Contact HR if this needs to change.");
   }
-  if (existing?.checkOutTime) {
-    throw new ApiError(409, `You've already completed today's shift (${existing.hoursWorked} hrs).`);
-  }
 
   const now = new Date();
-  const record = await Attendance.findOneAndUpdate(
-    { employee: employeeId, date: day },
-    {
-      $set: {
+  const isFirstPunchToday = !existing?.checkInTime;
+
+  const set = isFirstPunchToday
+    ? {
         status: 'Present',
         source: 'self',
         verifiedBy,
@@ -238,173 +243,29 @@ export async function selfCheckIn({ employeeId, lat, lng, accuracy }, actor) {
         checkInTime: now,
         checkOutTime: null,
         hoursWorked: null,
-      },
-    },
+      }
+    : {
+        verifiedBy,
+        checkOutTime: now,
+        hoursWorked: Math.round(((now - existing.checkInTime) / 3_600_000) * 100) / 100,
+      };
+
+  const record = await Attendance.findOneAndUpdate(
+    { employee: employeeId, date: day },
+    { $set: set },
     { new: true, upsert: true, runValidators: true }
   ).lean();
 
   await logAudit({
     user: actor.userId,
-    action: 'attendance.checkin',
+    action: isFirstPunchToday ? 'attendance.checkin' : 'attendance.checkout',
     targetType: 'Attendance',
     targetId: record._id,
-    meta: { date: day.toISOString().slice(0, 10), verifiedBy, distanceMeters: distance },
+    meta: isFirstPunchToday
+      ? { date: day.toISOString().slice(0, 10), verifiedBy, distanceMeters: distance }
+      : { hoursWorked: record.hoursWorked },
     ip: actor.ip,
   });
 
-  return record;
-}
-
-/**
- * A Worker signs themselves OUT, closing the shift selfCheckIn() opened and
- * computing hoursWorked. Finds the most recent open shift rather than
- * strictly "today's" record so an overnight shift (check in before midnight,
- * out after) still closes correctly.
- */
-export async function selfCheckOut({ employeeId, lat, lng, accuracy }, actor) {
-  const office = await requireOfficeLocation();
-  verifyOfficeLocation(office, { lat, lng }, actor); // throws if not at/near the office
-
-  const openShift = await Attendance.findOne({
-    employee: employeeId,
-    checkInTime: { $ne: null },
-    checkOutTime: null,
-  }).sort({ checkInTime: -1 });
-  if (!openShift) {
-    throw new ApiError(400, "You haven't signed in yet today.");
-  }
-
-  const now = new Date();
-  const hoursWorked = Math.round(((now - openShift.checkInTime) / 3_600_000) * 100) / 100;
-  const record = await Attendance.findByIdAndUpdate(
-    openShift._id,
-    { $set: { checkOutTime: now, hoursWorked } },
-    { new: true, runValidators: true }
-  ).lean();
-
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.checkout',
-    targetType: 'Attendance',
-    targetId: record._id,
-    meta: { hoursWorked },
-    ip: actor.ip,
-  });
-
-  return record;
-}
-
-// -------------------------------------------------------------- Tap points
-
-function generateTapToken() {
-  return crypto.randomBytes(12).toString('base64url'); // 16 chars, URL-safe
-}
-
-async function uniqueTapToken() {
-  let token = generateTapToken();
-  while (await TapPoint.exists({ token })) token = generateTapToken(); // astronomically unlikely, guarded anyway
-  return token;
-}
-
-/** Physical NFC tap points (e.g. one per room) a Worker can tap to sign in/out. */
-export async function listTapPoints() {
-  return TapPoint.find().sort({ name: 1 }).lean();
-}
-
-export async function createTapPoint({ name, direction }, actor) {
-  const token = await uniqueTapToken();
-  const point = await TapPoint.create({ name, direction, token });
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.tapPoint.create',
-    targetType: 'TapPoint',
-    targetId: point._id,
-    meta: { name, direction },
-    ip: actor.ip,
-  });
-  return point.toObject();
-}
-
-export async function updateTapPoint(id, data, actor) {
-  const point = await TapPoint.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
-  if (!point) throw new ApiError(404, 'Tap point not found.');
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.tapPoint.update',
-    targetType: 'TapPoint',
-    targetId: id,
-    meta: { fields: Object.keys(data) },
-    ip: actor.ip,
-  });
-  return point;
-}
-
-/** New token → the old URL dies immediately; the physical chip must be rewritten. */
-export async function rotateTapPointToken(id, actor) {
-  const point = await TapPoint.findById(id);
-  if (!point) throw new ApiError(404, 'Tap point not found.');
-  point.token = await uniqueTapToken();
-  await point.save();
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.tapPoint.rotate',
-    targetType: 'TapPoint',
-    targetId: id,
-    ip: actor.ip,
-  });
-  return point.toObject();
-}
-
-export async function deleteTapPoint(id, actor) {
-  const point = await TapPoint.findByIdAndDelete(id).lean();
-  if (!point) throw new ApiError(404, 'Tap point not found.');
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.tapPoint.delete',
-    targetType: 'TapPoint',
-    targetId: id,
-    meta: { name: point.name },
-    ip: actor.ip,
-  });
-}
-
-/**
- * A Worker taps a physical NFC tag (e.g. at a room entrance) instead of
- * pressing the Sign in/Sign out button in the app — same underlying
- * check-in/out, same geofence/office-IP verification, just triggered by a
- * tap. The tap point's direction decides the action, not the worker's
- * current state: an 'in' point always attempts a check-in, an 'out' point
- * always attempts a check-out — that's what makes the name on the physical
- * tag actually mean something. selfCheckIn/selfCheckOut's own guards
- * (already signed in, already completed today, never signed in) still fire
- * as normal 409/400s — deliberately not swallowed, since "you tapped the
- * wrong tag" IS the correct feedback in that case; the worker's own Sign
- * in/Sign out buttons in My Attendance remain the fallback for whichever
- * direction isn't covered by a physical tag at hand. Deliberately doesn't
- * care WHICH specific tap point of that direction was used (P2-M3+ decision:
- * overall presence, not room occupancy) — the point's name is logged for
- * audit-trail context only.
- */
-export async function selfTap({ employeeId, token, lat, lng, accuracy }, actor) {
-  const point = await TapPoint.findOne({ token, active: true }).lean();
-  if (!point) {
-    throw new ApiError(404, 'This tap point was not recognized. Ask your Admin to check it.');
-  }
-
-  const action = point.direction === 'in' ? 'checked-in' : 'checked-out';
-  const record =
-    point.direction === 'in'
-      ? await selfCheckIn({ employeeId, lat, lng, accuracy }, actor)
-      : await selfCheckOut({ employeeId, lat, lng, accuracy }, actor);
-
-  await logAudit({
-    user: actor.userId,
-    action: 'attendance.tap',
-    targetType: 'Attendance',
-    targetId: record._id,
-    meta: { tapPoint: point.name, direction: point.direction, action },
-    ip: actor.ip,
-  });
-
-  return { action, record, tapPoint: point.name };
+  return { action: isFirstPunchToday ? 'checked-in' : 'checked-out', record };
 }

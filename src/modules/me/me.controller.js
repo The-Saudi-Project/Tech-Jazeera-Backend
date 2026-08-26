@@ -72,22 +72,16 @@ export async function cancelLeave(req, res) {
   res.json(new ApiResponse('Leave request cancelled.', request));
 }
 
-/** POST /api/me/attendance/check-in — 201 → data: attendance record. 403 if outside the geofence/office network. */
-export async function checkIn(req, res) {
-  const record = await meService.checkInMyAttendance(myEmployeeId(req), req.body, actor(req));
-  res.status(201).json(new ApiResponse('Signed in.', record));
-}
-
-/** POST /api/me/attendance/check-out — 200 → data: attendance record with hoursWorked. 400 if never signed in. */
-export async function checkOut(req, res) {
-  const record = await meService.checkOutMyAttendance(myEmployeeId(req), req.body, actor(req));
-  res.json(new ApiResponse('Signed out.', record));
-}
-
-/** POST /api/me/attendance/tap — 200 → data: { action, record, tapPoint }. Toggles check-in/out for a physical NFC tap. */
-export async function tap(req, res) {
-  const data = await meService.tapMyAttendance(myEmployeeId(req), req.body, actor(req));
-  res.json(new ApiResponse(data.action === 'checked-in' ? 'Signed in.' : 'Signed out.', data));
+/**
+ * POST /api/me/attendance/punch — 200 → data: { action, record }. The
+ * Sign in/Sign out buttons in My Attendance both call this — the server
+ * decides whether it's the day's first punch (check-in) or a later one
+ * (pushes checkOutTime forward), not the button label. 403 if outside the
+ * geofence/office network.
+ */
+export async function punch(req, res) {
+  const data = await meService.punchMyAttendance(myEmployeeId(req), req.body, actor(req));
+  res.json(new ApiResponse(data.action === 'checked-in' ? 'Signed in.' : 'Recorded.', data));
 }
 
 /** GET /api/me/attendance — 200 → data: record[] (last 30 days by default) */

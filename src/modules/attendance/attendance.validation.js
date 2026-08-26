@@ -51,9 +51,9 @@ export const officeLocationSchema = z.object({
   allowedIps: z.array(z.string().trim().min(3).max(45)).max(10).default([]),
 });
 
-/** P2-M3: a Worker's self check-in/check-out (same shape for both). lat/lng
- *  are optional so an office-IP-only check still works if the browser denied
- *  location access. */
+/** P2-M3: a Worker's self-punch (Sign in/Sign out buttons — see selfPunch()).
+ *  lat/lng are optional so an office-IP-only check still works if the
+ *  browser denied location access. */
 export const selfMarkSchema = z.object({
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
@@ -65,28 +65,3 @@ export const listMyAttendanceSchema = z.object({
   from: dateOnly.optional(),
   to: dateOnly.optional(),
 });
-
-/** A physical NFC tap point's token — base64url, matches generateTapToken(). */
-const tapToken = z.string().regex(/^[A-Za-z0-9_-]{10,24}$/, 'Invalid tap token.');
-
-/** A Worker tapping a physical tag — same location fields as selfMarkSchema,
- *  plus which tap point. */
-export const tapSchema = z.object({
-  token: tapToken,
-  lat: z.coerce.number().min(-90).max(90).optional(),
-  lng: z.coerce.number().min(-180).max(180).optional(),
-  accuracy: z.coerce.number().min(0).optional(),
-});
-
-/** Admin CRUD for tap points (rooms). Direction is fixed per point — see
- *  tapPoint.model.js for why it isn't inferred from the worker's state. */
-export const createTapPointSchema = z.object({
-  name: z.string().trim().min(2, 'Name is required.').max(60),
-  direction: z.enum(['in', 'out'], { error: 'Direction must be "in" or "out".' }),
-});
-export const updateTapPointSchema = z.object({
-  name: z.string().trim().min(2).max(60).optional(),
-  direction: z.enum(['in', 'out']).optional(),
-  active: z.coerce.boolean().optional(),
-});
-export const tapPointIdParamSchema = z.object({ id });

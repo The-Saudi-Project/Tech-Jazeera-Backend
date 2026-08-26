@@ -12,15 +12,21 @@
  *  - The compound unique index `{ employee, date }` guarantees at most one
  *    record per worker per day; re-marking a day is an upsert, not a duplicate.
  *  - P2-M3: `source`/`verifiedBy`/`selfMarkLocation` record how a record came
- *    to exist. Self-marking is the Worker's own geofence-verified check-in;
+ *    to exist. Self-marking is the Worker's own geofence-verified punch;
  *    staff marking (the original M7 flow) remains the backup/override — see
- *    attendance.service.js's selfCheckIn()/selfCheckOut() for why a staff-set
- *    record can't be silently overwritten by a later self check-in.
+ *    attendance.service.js's selfPunch() for why a staff-set record can't be
+ *    silently overwritten by a later self-punch.
  *  - `checkInTime`/`checkOutTime`/`hoursWorked`: only ever set by a Worker's
- *    own self check-in/out (staff bulk-marking a day clears them — a staff
- *    override has no clock times to show). `hoursWorked` is computed once,
- *    at checkout, and stored rather than derived on read — it's a durable
- *    fact about that day, same reasoning as the snapshot fields elsewhere.
+ *    own self-punches (staff bulk-marking a day clears them — a staff
+ *    override has no clock times to show). `checkInTime` is fixed at the
+ *    FIRST punch of the day and never changes again; `checkOutTime` and
+ *    `hoursWorked` are recomputed on EVERY punch after that, so they mean
+ *    "as of the most recent punch," not "final" — there's no way to know a
+ *    punch is the day's last one until no further punches happen. This is a
+ *    deliberate choice: it lets a Worker punch any number of times (e.g.
+ *    signing out and back in the same day) without ever erroring, at the
+ *    cost of not detecting an unaccounted gap between punches (see
+ *    selfPunch()).
  */
 import mongoose from 'mongoose';
 

@@ -21,6 +21,12 @@ const nullableObjectId = (label) =>
     z.string().regex(/^[a-f0-9]{24}$/i, `Invalid ${label} id.`).nullable().optional()
   );
 
+/** Like nullableObjectId, but for a number — "" means "clear it" (null). */
+const nullableHours = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+  z.coerce.number({ error: 'Enter a number of hours.' }).min(0).max(24).nullable().optional()
+);
+
 // Loose international phone shape — real-world numbers are messy; we only
 // reject obvious garbage, we don't try to fully parse them.
 const phone = z
@@ -63,6 +69,9 @@ export const createEmployeeSchema = z.object({
   department: optionalStr(60),
   salary: z.coerce.number({ error: 'Salary must be a number.' }).min(0).max(1_000_000),
   accommodation: optionalStr(100),
+  // Early-sign-out warning threshold for this employee (My Attendance). "" means
+  // "no threshold" (null), not "leave unchanged" — same rule as coordinator.
+  expectedDailyHours: nullableHours,
   status: z.enum(EMPLOYEE_STATUSES).default('Active'),
 
   emergencyContact: z
