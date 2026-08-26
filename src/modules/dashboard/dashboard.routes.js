@@ -1,9 +1,9 @@
 /**
  * Dashboard route. Read-only, available to any authenticated STAFF user — it's
- * the staff landing page and aggregates company-wide figures, so a Worker
- * (P2-M1) is excluded (requireStaff); their own landing is the ESS portal
- * (P2-M2). (A production deployment might further restrict the finance figures
- * to managers; Phase 1 keeps the overview open to all signed-in staff.)
+ * the staff landing page, so a Worker (P2-M1) is excluded (requireStaff);
+ * their own landing is the ESS portal (P2-M2). Every figure a Coordinator
+ * receives is scoped to their own team by the service, not by this route —
+ * see dashboard.service.js's getDashboard() doc comment.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';

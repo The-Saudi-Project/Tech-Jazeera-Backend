@@ -311,15 +311,15 @@ export async function listTapPoints() {
   return TapPoint.find().sort({ name: 1 }).lean();
 }
 
-export async function createTapPoint({ name }, actor) {
+export async function createTapPoint({ name, direction }, actor) {
   const token = await uniqueTapToken();
-  const point = await TapPoint.create({ name, token });
+  const point = await TapPoint.create({ name, direction, token });
   await logAudit({
     user: actor.userId,
     action: 'attendance.tapPoint.create',
     targetType: 'TapPoint',
     targetId: point._id,
-    meta: { name },
+    meta: { name, direction },
     ip: actor.ip,
   });
   return point.toObject();
@@ -372,13 +372,18 @@ export async function deleteTapPoint(id, actor) {
  * A Worker taps a physical NFC tag (e.g. at a room entrance) instead of
  * pressing the Sign in/Sign out button in the app — same underlying
  * check-in/out, same geofence/office-IP verification, just triggered by a
- * tap. Toggles on whether the Worker already has a shift open: no open shift
- * → check in, open shift → check out. For the normal one-in/one-out day that
- * IS "first tap of the day, last tap of the day"; a third tap the same day
- * just hits selfCheckIn's own "already completed today" guard, same as the
- * button would. Deliberately doesn't care WHICH tap point was used (P2-M3+
- * decision: overall presence, not room occupancy) — the point's name is
- * logged for audit-trail context only.
+ * tap. The tap point's direction decides the action, not the worker's
+ * current state: an 'in' point always attempts a check-in, an 'out' point
+ * always attempts a check-out — that's what makes the name on the physical
+ * tag actually mean something. selfCheckIn/selfCheckOut's own guards
+ * (already signed in, already completed today, never signed in) still fire
+ * as normal 409/400s — deliberately not swallowed, since "you tapped the
+ * wrong tag" IS the correct feedback in that case; the worker's own Sign
+ * in/Sign out buttons in My Attendance remain the fallback for whichever
+ * direction isn't covered by a physical tag at hand. Deliberately doesn't
+ * care WHICH specific tap point of that direction was used (P2-M3+ decision:
+ * overall presence, not room occupancy) — the point's name is logged for
+ * audit-trail context only.
  */
 export async function selfTap({ employeeId, token, lat, lng, accuracy }, actor) {
   const point = await TapPoint.findOne({ token, active: true }).lean();
@@ -386,23 +391,18 @@ export async function selfTap({ employeeId, token, lat, lng, accuracy }, actor) 
     throw new ApiError(404, 'This tap point was not recognized. Ask your Admin to check it.');
   }
 
-  const openShift = await Attendance.findOne({
-    employee: employeeId,
-    checkInTime: { $ne: null },
-    checkOutTime: null,
-  }).lean();
-
-  const action = openShift ? 'checked-out' : 'checked-in';
-  const record = openShift
-    ? await selfCheckOut({ employeeId, lat, lng, accuracy }, actor)
-    : await selfCheckIn({ employeeId, lat, lng, accuracy }, actor);
+  const action = point.direction === 'in' ? 'checked-in' : 'checked-out';
+  const record =
+    point.direction === 'in'
+      ? await selfCheckIn({ employeeId, lat, lng, accuracy }, actor)
+      : await selfCheckOut({ employeeId, lat, lng, accuracy }, actor);
 
   await logAudit({
     user: actor.userId,
     action: 'attendance.tap',
     targetType: 'Attendance',
     targetId: record._id,
-    meta: { tapPoint: point.name, action },
+    meta: { tapPoint: point.name, direction: point.direction, action },
     ip: actor.ip,
   });
 

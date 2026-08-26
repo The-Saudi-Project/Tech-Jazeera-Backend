@@ -78,12 +78,15 @@ export const tapSchema = z.object({
   accuracy: z.coerce.number().min(0).optional(),
 });
 
-/** Admin CRUD for tap points (rooms). */
+/** Admin CRUD for tap points (rooms). Direction is fixed per point — see
+ *  tapPoint.model.js for why it isn't inferred from the worker's state. */
 export const createTapPointSchema = z.object({
   name: z.string().trim().min(2, 'Name is required.').max(60),
+  direction: z.enum(['in', 'out'], { error: 'Direction must be "in" or "out".' }),
 });
 export const updateTapPointSchema = z.object({
   name: z.string().trim().min(2).max(60).optional(),
+  direction: z.enum(['in', 'out']).optional(),
   active: z.coerce.boolean().optional(),
 });
 export const tapPointIdParamSchema = z.object({ id });

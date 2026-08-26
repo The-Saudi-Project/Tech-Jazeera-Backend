@@ -18,6 +18,7 @@ import Deployment from '../deployments/deployment.model.js';
 import Quotation from '../quotations/quotation.model.js';
 import Document from '../documents/document.model.js';
 import AuditLog from '../audit/audit.model.js';
+import User from '../auth/user.model.js';
 
 export const EXPIRY_WARNING_DAYS = 30;
 
@@ -37,9 +38,16 @@ const daysUntil = (date) => Math.ceil((new Date(date).getTime() - Date.now()) / 
  * @param {number} [opts.thresholdDays] override the 30-day alert window (P2-M2,
  *   customizable per viewer — mirrors the same param on the employee list)
  * @param {{role: string, userId: string}} [opts.actor] when actor.role is
- *   'Coordinator', the expiring-documents alert list is scoped to only their
- *   assigned employees — every other figure (workforce counts, payroll,
- *   clients, quotations) stays company-wide, unchanged from Phase 1
+ *   'Coordinator', EVERY figure below is scoped to their own team: deployments,
+ *   workforce counts, payroll, the clients their team is placed at, expiring
+ *   documents, and a recent-activity feed limited to their own actions plus
+ *   their team's self-service actions. Quotations and quotation-derived
+ *   revenue are the one exception — omitted entirely for a Coordinator rather
+ *   than approximated, because Quotation only links to Client, not to any
+ *   Employee/Coordinator, so there is no honest way to compute "this
+ *   Coordinator's revenue" from the data model (same "never fabricate a
+ *   figure the data doesn't support" rule the finance section already
+ *   follows for profit).
  */
 export async function getDashboard({ thresholdDays, actor } = {}) {
   const days = thresholdDays ?? EXPIRY_WARNING_DAYS;
@@ -48,16 +56,31 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     [`${key}.expiry`]: { $ne: null, $lte: threshold },
   }));
 
-  // P2-M2: a Coordinator's alert list is their own team only. Computed once,
-  // ahead of the parallel batch below, so both the Employee and Document
-  // expiry queries can use the same scope.
-  const teamIds = actor?.role === 'Coordinator' ? await Employee.find({ coordinator: actor.userId }).distinct('_id') : null;
+  // A Coordinator's entire dashboard is scoped to their own team. Computed
+  // once, ahead of the parallel batch below, so every filter that needs it
+  // shares the same scope.
+  const isCoordinator = actor?.role === 'Coordinator';
+  const teamIds = isCoordinator ? await Employee.find({ coordinator: actor.userId }).distinct('_id') : null;
+  // Worker logins belonging to the team, so the activity feed can include
+  // their team's own self-service actions (signing in, submitting leave)
+  // without pulling in company-wide admin activity that isn't theirs to see.
+  const teamUserIds = isCoordinator ? await User.find({ employee: { $in: teamIds } }).distinct('_id') : null;
 
   const employeeExpiryFilter = { status: { $ne: 'Exited' }, $or: identityExpiryOr };
   if (teamIds) employeeExpiryFilter._id = { $in: teamIds };
 
   const documentExpiryFilter = { expiryDate: { $ne: null, $lte: threshold } };
   if (teamIds) Object.assign(documentExpiryFilter, { ownerType: 'Employee', owner: { $in: teamIds } });
+
+  const deploymentFilter = { status: 'Active' };
+  if (teamIds) deploymentFilter.worker = { $in: teamIds };
+
+  const employeeStatusFilter = teamIds ? { _id: { $in: teamIds } } : {};
+  const payrollFilter = teamIds
+    ? { status: { $ne: 'Exited' }, _id: { $in: teamIds } }
+    : { status: { $ne: 'Exited' } };
+
+  const activityFilter = teamIds ? { user: { $in: [...teamUserIds, actor.userId] } } : {};
 
   const [
     deployedActive,
@@ -69,16 +92,21 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     expiringDocs,
     recentActivity,
   ] = await Promise.all([
-    Deployment.countDocuments({ status: 'Active' }),
-    Employee.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+    Deployment.countDocuments(deploymentFilter),
+    Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
     Employee.aggregate([
-      { $match: { status: { $ne: 'Exited' } } },
+      { $match: payrollFilter },
       { $group: { _id: null, total: { $sum: '$salary' } } },
     ]),
-    Client.countDocuments({ status: 'Active' }),
-    Quotation.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$grandTotal' } } },
-    ]),
+    // A Coordinator's "clients" are the distinct clients their team is
+    // currently placed at — not every client in the system.
+    teamIds
+      ? Deployment.find({ status: 'Active', worker: { $in: teamIds } }).distinct('client').then((ids) => ids.length)
+      : Client.countDocuments({ status: 'Active' }),
+    // Skipped entirely for a Coordinator — see the doc comment above.
+    teamIds
+      ? Promise.resolve([])
+      : Quotation.aggregate([{ $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$grandTotal' } } }]),
     Employee.find(employeeExpiryFilter)
       .select('fullName employeeId passport visa iqama medical drivingLicense')
       .lean(),
@@ -86,7 +114,7 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
       .populate('owner', 'fullName companyName')
       .limit(50)
       .lean(),
-    AuditLog.find().sort({ createdAt: -1 }).limit(8).populate('user', 'name').lean(),
+    AuditLog.find(activityFilter).sort({ createdAt: -1 }).limit(8).populate('user', 'name').lean(),
   ]);
 
   // Workforce by status
@@ -142,15 +170,16 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
       onLeave: workforceByStatus['On Leave'],
       totalWorkers,
       activeClients,
-      pendingQuotations: quotationsByStatus.Draft,
+      pendingQuotations: teamIds ? null : quotationsByStatus.Draft,
+      expiringSoon: expiringDocuments.length,
     },
     finance: {
-      approvedRevenue,
-      pendingRevenue,
+      approvedRevenue: teamIds ? null : approvedRevenue,
+      pendingRevenue: teamIds ? null : pendingRevenue,
       monthlyPayroll: payrollAgg[0]?.total ?? 0,
     },
     workforceByStatus,
-    quotationsByStatus,
+    quotationsByStatus: teamIds ? null : quotationsByStatus,
     expiringDocuments: expiringDocuments.slice(0, 10),
     recentActivity,
   };

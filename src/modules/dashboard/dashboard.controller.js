@@ -6,8 +6,11 @@ import { getDashboard } from './dashboard.service.js';
 
 /**
  * GET /api/dashboard?thresholdDays=  — 200 → data: the full rolled-up overview.
- * A Coordinator's expiringDocuments are scoped to their own team (P2-M2);
- * every other figure stays company-wide.
+ * A Coordinator sees their own team throughout — deployments, workforce
+ * counts, payroll, clients, expiring documents, and activity. Quotations and
+ * quotation-derived revenue are omitted for a Coordinator (null), since
+ * there's no data-model link from a Coordinator's team to a quotation. Every
+ * other role still sees the full company-wide overview.
  */
 export async function overview(req, res) {
   const data = await getDashboard({
