@@ -40,6 +40,7 @@ import { serveNfcMedia } from './modules/nfc/nfc.upload.js';
 import userRoutes from './modules/users/user.routes.js';
 import leaveRoutes from './modules/leave/leave.routes.js';
 import meRoutes from './modules/me/me.routes.js';
+import staffAttendanceRoutes from './modules/staffAttendance/staffAttendance.routes.js';
 
 const app = express();
 
@@ -92,6 +93,7 @@ app.use('/api/nfc', nfcRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', leaveRoutes); // owns /api/leave-types and /api/leave
 app.use('/api/me', meRoutes);
+app.use('/api/staff-attendance', staffAttendanceRoutes);
 
 // Public NFC tap pages — server-rendered HTML, NOT under /api (no auth, own
 // rate limiter). Must be mounted before the 404 handler.

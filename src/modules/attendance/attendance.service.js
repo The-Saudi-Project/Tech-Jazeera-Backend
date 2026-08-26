@@ -125,14 +125,30 @@ export async function adjustAttendance({ employee, date, status, checkInTime, ch
   return record;
 }
 
+/** A Coordinator may only see attendance for employees assigned to them —
+ *  same rule as employees/leave. Resolves their team once and either scopes
+ *  the range query to it, or checks a specific `employee` param is in it. */
+async function scopeToCoordinatorTeam(filterKey, target, employeeParam, actor) {
+  if (actor?.role !== 'Coordinator') return;
+  const teamIds = await Employee.find({ coordinator: actor.userId }).distinct('_id');
+  if (employeeParam) {
+    if (!teamIds.some((id) => id.toString() === employeeParam)) {
+      throw new ApiError(403, 'You do not have access to this employee.');
+    }
+    return;
+  }
+  target[filterKey] = { $in: teamIds };
+}
+
 /**
- * Raw records in a date range (for the week/month grid). Employee is
- * populated so the grid can label rows. Capped so an over-wide range can't
- * pull the whole collection.
+ * Raw records in a date range (for the week/month grid and the sign-in/out
+ * log). Employee is populated so the grid can label rows. Capped so an
+ * over-wide range can't pull the whole collection.
  */
-export async function listAttendance({ from, to, employee }) {
+export async function listAttendance({ from, to, employee }, actor) {
   const filter = { date: dayRangeFilter(from, to) };
   if (employee) filter.employee = employee;
+  await scopeToCoordinatorTeam('employee', filter, employee, actor);
   return Attendance.find(filter)
     .populate('employee', 'fullName employeeId')
     .sort({ date: 1 })
@@ -144,9 +160,10 @@ export async function listAttendance({ from, to, employee }) {
  * Per-employee counts per status over a range (the summary + export source).
  * One aggregation returns a row per worker with a column per status.
  */
-export async function getSummary({ from, to, employee }) {
+export async function getSummary({ from, to, employee }, actor) {
   const match = { date: dayRangeFilter(from, to) };
   if (employee) match.employee = new mongoose.Types.ObjectId(employee);
+  await scopeToCoordinatorTeam('employee', match, employee, actor);
 
   const countIf = (status) => ({ $sum: { $cond: [{ $eq: ['$status', status] }, 1, 0] } });
   const rows = await Attendance.aggregate([
@@ -216,7 +233,7 @@ export async function setOfficeLocation(data, actor) {
  * check-in and check-out — hours only mean something if both ends of the
  * shift were verified, not just the start.
  */
-function verifyOfficeLocation(office, { lat, lng }, actor) {
+export function verifyOfficeLocation(office, { lat, lng }, actor) {
   const ipOk = office.allowedIps.includes(actor.ip);
   let distance = null;
   let geofenceOk = false;
@@ -236,7 +253,7 @@ function verifyOfficeLocation(office, { lat, lng }, actor) {
   return { verifiedBy: geofenceOk ? 'geofence' : 'officeIp', distance };
 }
 
-async function requireOfficeLocation() {
+export async function requireOfficeLocation() {
   const office = await OfficeLocation.findOne().lean();
   if (!office) {
     throw new ApiError(400, 'Office location has not been set up yet — ask your Admin to configure it.');
