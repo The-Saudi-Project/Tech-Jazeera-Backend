@@ -6,6 +6,7 @@
  */
 import env from '../../config/env.js';
 import ApiResponse from '../../utils/ApiResponse.js';
+import ApiError from '../../utils/ApiError.js';
 import * as authService from './auth.service.js';
 import { REFRESH_TOKEN_TTL_DAYS } from './auth.service.js';
 
@@ -94,4 +95,25 @@ export async function changePassword(req, res) {
   await authService.changePassword({ userId: req.user.id, ...req.body }, req.ip);
   res.clearCookie(REFRESH_COOKIE, { ...cookieOptions, maxAge: undefined });
   res.json(new ApiResponse('Password changed. Please sign in again.'));
+}
+
+/**
+ * PATCH /api/auth/avatar
+ * Auth: Bearer (any logged-in role), multipart field `avatar`
+ * 200 → data: { avatarUrl } · 400 no file / bad type / too large
+ */
+export async function uploadAvatar(req, res) {
+  if (!req.file) throw new ApiError(400, 'Choose an image to upload.');
+  const data = await authService.updateAvatar({ userId: req.user.id, url: req.file.path }, req.ip);
+  res.json(new ApiResponse('Profile photo updated.', data));
+}
+
+/**
+ * DELETE /api/auth/avatar
+ * Auth: Bearer (any logged-in role)
+ * 200 → data: { avatarUrl: null }
+ */
+export async function removeAvatar(req, res) {
+  const data = await authService.removeAvatar({ userId: req.user.id }, req.ip);
+  res.json(new ApiResponse('Profile photo removed.', data));
 }

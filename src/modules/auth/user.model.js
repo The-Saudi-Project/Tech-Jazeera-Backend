@@ -53,6 +53,9 @@ const userSchema = new mongoose.Schema(
     // Soft on/off switch: deactivate a leaver instead of deleting them, so
     // their audit history keeps pointing at a real user.
     isActive: { type: Boolean, default: true },
+    // Self-service profile photo — a public Cloudinary URL, or null. Every
+    // role can set their own; see auth.service.js updateAvatar/removeAvatar.
+    avatarUrl: { type: String, default: null },
     // P2-M1: links a login to its workforce record. Optional and null for
     // staff (an accountant is a User with no Employee). A Worker's login maps
     // to exactly ONE employee — enforced by the partial unique index below.

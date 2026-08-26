@@ -42,3 +42,12 @@ export async function resetPassword(req, res) {
   const data = await userService.resetStaffPassword(req.params.id, actor(req));
   res.json(new ApiResponse('Password reset.', data));
 }
+
+/**
+ * DELETE /api/users/:id   (Admin)
+ * 200 → permanently removed · 400 self-delete / would orphan records · 404 unknown
+ */
+export async function remove(req, res) {
+  await userService.deleteStaffUser(req.params.id, actor(req));
+  res.json(new ApiResponse('User deleted.'));
+}

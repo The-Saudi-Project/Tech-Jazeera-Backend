@@ -50,5 +50,11 @@ router.post(
   validate({ params: userIdParamSchema }),
   asyncHandler(userController.resetPassword)
 );
+router.delete(
+  '/:id',
+  requireRoles('Admin'),
+  validate({ params: userIdParamSchema }),
+  asyncHandler(userController.remove)
+);
 
 export default router;

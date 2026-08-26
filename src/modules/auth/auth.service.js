@@ -22,6 +22,7 @@ import ApiError from '../../utils/ApiError.js';
 import User from './user.model.js';
 import RefreshToken from './refreshToken.model.js';
 import { logAudit } from '../audit/audit.service.js';
+import { deleteAvatarMedia } from './avatar.upload.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 export const REFRESH_TOKEN_TTL_DAYS = 7;
@@ -66,7 +67,13 @@ function hashToken(token) {
 
 /** The safe subset of a user we ever send to the client. */
 function publicUser(user) {
-  return { id: user._id.toString(), name: user.name, email: user.email, role: user.role };
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatarUrl: user.avatarUrl ?? null,
+  };
 }
 
 /** Mint both tokens and persist the refresh token's hash as a session row. */
@@ -200,4 +207,36 @@ export async function changePassword({ userId, currentPassword, newPassword }, i
 
   await logAudit({ user: user._id, action: 'auth.password.changed', ip });
   logger.info(`Password changed: ${user.email}`);
+}
+
+/**
+ * Self-service avatar upload/replace — any role. The old image (if any) is
+ * deleted from Cloudinary after the swap succeeds, so a failed upload never
+ * orphans the previous one.
+ */
+export async function updateAvatar({ userId, url }, ip) {
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, 'Account not found.');
+
+  const old = user.avatarUrl;
+  user.avatarUrl = url;
+  await user.save();
+  if (old) await deleteAvatarMedia(old);
+
+  await logAudit({ user: user._id, action: 'user.avatar.update', ip });
+  return { avatarUrl: url };
+}
+
+/** Self-service avatar removal — reverts to the initial-letter placeholder. */
+export async function removeAvatar({ userId }, ip) {
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, 'Account not found.');
+
+  const old = user.avatarUrl;
+  user.avatarUrl = null;
+  await user.save();
+  if (old) await deleteAvatarMedia(old);
+
+  await logAudit({ user: user._id, action: 'user.avatar.remove', ip });
+  return { avatarUrl: null };
 }

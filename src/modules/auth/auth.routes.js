@@ -10,6 +10,7 @@ import { validate } from '../../middleware/validate.js';
 import { loginLimiter } from '../../middleware/rateLimiter.js';
 import { requireTrustedOrigin } from '../../middleware/originGuard.js';
 import { loginSchema, changePasswordSchema } from './auth.validation.js';
+import { uploadAvatarImage } from './avatar.upload.js';
 import * as authController from './auth.controller.js';
 
 const router = Router();
@@ -34,5 +35,9 @@ router.patch(
   validate({ body: changePasswordSchema }),
   asyncHandler(authController.changePassword)
 );
+
+// Profile photo — same Bearer-only auth as /password, any role.
+router.patch('/avatar', requireAuth, uploadAvatarImage, asyncHandler(authController.uploadAvatar));
+router.delete('/avatar', requireAuth, asyncHandler(authController.removeAvatar));
 
 export default router;

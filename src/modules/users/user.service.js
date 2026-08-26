@@ -7,6 +7,7 @@
  */
 import User, { COORDINATOR_MANAGER_ROLES } from '../auth/user.model.js';
 import RefreshToken from '../auth/refreshToken.model.js';
+import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -154,4 +155,53 @@ export async function resetStaffPassword(id, actor) {
   });
 
   return { tempPassword };
+}
+
+/**
+ * Permanently remove a staff login (distinct from Deactivate, which is the
+ * recommended default for a leaver — see the "soft on/off switch" comment on
+ * the User model). Delete is for accounts that should never have existed at
+ * all: a mistyped entry, a throwaway test account, provisioned-by-accident.
+ *
+ * Blocked when it would leave a dangling reference: a Coordinator still
+ * assigned to employees, or a manager other Coordinators still report to —
+ * both would silently orphan real records. Reassign first, then delete.
+ */
+export async function deleteStaffUser(id, actor) {
+  const user = await User.findById(id);
+  if (!user || user.role === 'Worker') throw new ApiError(404, 'Staff user not found.');
+
+  if (user._id.toString() === actor.userId) {
+    throw new ApiError(400, 'You cannot delete your own account.');
+  }
+
+  if (user.role === 'Coordinator') {
+    const teamCount = await Employee.countDocuments({ coordinator: user._id });
+    if (teamCount > 0) {
+      throw new ApiError(
+        400,
+        `${teamCount} employee(s) are still assigned to this coordinator. Reassign them first.`
+      );
+    }
+  }
+
+  const reportCount = await User.countDocuments({ managedBy: user._id });
+  if (reportCount > 0) {
+    throw new ApiError(
+      400,
+      `${reportCount} coordinator(s) report to this user. Reassign them first.`
+    );
+  }
+
+  await User.findByIdAndDelete(id);
+  await RefreshToken.deleteMany({ user: id });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'user.delete.staff',
+    targetType: 'User',
+    targetId: id,
+    meta: { email: user.email, role: user.role },
+    ip: actor.ip,
+  });
 }
