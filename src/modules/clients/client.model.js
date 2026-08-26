@@ -19,6 +19,15 @@ import mongoose from 'mongoose';
 /** Single source of truth for status values — validation and UI import it. */
 export const CLIENT_STATUSES = ['Active', 'Inactive'];
 
+/**
+ * Approval state, separate from `status` above. A Coordinator-created client
+ * starts 'Pending' and is excluded from deployment/quotation client pickers
+ * until decided — see client.service.js decideClient(). Admin/Manager-created
+ * clients default straight to 'Approved' (they own the client relationship
+ * already; there's nothing to approve).
+ */
+export const CLIENT_APPROVAL_STATUSES = ['Approved', 'Pending', 'Rejected'];
+
 /** A physical location/project of the client. Keeps its own _id (default). */
 const siteSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -41,6 +50,13 @@ const clientSchema = new mongoose.Schema(
     sites: { type: [siteSchema], default: [] },
     status: { type: String, enum: CLIENT_STATUSES, default: 'Active' },
     notes: { type: String, trim: true, maxlength: 2000 },
+    approvalStatus: { type: String, enum: CLIENT_APPROVAL_STATUSES, default: 'Approved' },
+    // Who created this record — null for records predating this field.
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    // Who decided a Pending submission, and how — null until a decision is made.
+    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    decidedAt: { type: Date, default: null },
+    decisionNote: { type: String, trim: true, maxlength: 500 },
   },
   { timestamps: true }
 );
@@ -48,5 +64,7 @@ const clientSchema = new mongoose.Schema(
 // The list screen sorts by these; indexes keep those sorts off a full scan.
 clientSchema.index({ companyName: 1 });
 clientSchema.index({ createdAt: -1 });
+// The approvals queue and the deployment/quotation picker's exclusion filter.
+clientSchema.index({ approvalStatus: 1 });
 
 export default mongoose.model('Client', clientSchema);

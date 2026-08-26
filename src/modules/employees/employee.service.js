@@ -45,7 +45,7 @@ function escapeRegex(text) {
  * script) can still list company-wide; every HTTP call supplies it.
  */
 export async function listEmployees(
-  { page, limit, search, status, alerts, thresholdDays, client, unassigned, team, sortBy, sortOrder },
+  { page, limit, search, status, alerts, thresholdDays, client, unassigned, team, createdByRole, sortBy, sortOrder },
   actor
 ) {
   // Each condition is AND-ed; search and alerts are each internally OR-ed.
@@ -65,6 +65,10 @@ export async function listEmployees(
     // $lte against a Date matches only real dates — documents with no expiry
     // (null/absent) are naturally excluded.
     conditions.push({ $or: EXPIRY_FIELDS.map((field) => ({ [field]: { $lte: threshold } })) });
+  }
+  if (createdByRole === 'Coordinator') {
+    const coordinatorIds = await User.find({ role: 'Coordinator' }).distinct('_id');
+    conditions.push({ createdBy: { $in: coordinatorIds } });
   }
   // P2-M2: a Coordinator only ever sees their own assigned employees — this is
   // not a filter the caller can opt out of. A Manager may narrow to their
@@ -86,7 +90,12 @@ export async function listEmployees(
   const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1, _id: 1 };
 
   const [items, total] = await Promise.all([
-    Employee.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).lean(),
+    Employee.find(filter)
+      .sort(sort)
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('createdBy', 'name role')
+      .lean(),
     Employee.countDocuments(filter),
   ]);
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
@@ -99,6 +108,7 @@ export async function getEmployee(id, actor) {
   const employee = await Employee.findById(id)
     .populate('currentClient', 'companyName')
     .populate('coordinator', 'name email')
+    .populate('createdBy', 'name role')
     .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
   // P2-M2: a Coordinator may only open employees assigned to them — everyone
@@ -212,8 +222,13 @@ export async function resetEmployeeLoginPassword(employeeId, actor) {
 
 /** Duplicate employeeId is caught by the unique index → 409 via errorHandler. */
 export async function createEmployee(data, actor) {
-  await assertValidCoordinator(data.coordinator);
-  const employee = await Employee.create(data);
+  const payload = { ...data, createdBy: actor.userId };
+  // A Coordinator adding their own worker doesn't pick a coordinator — it's
+  // always themselves. Overriding here (not just defaulting) means a
+  // hand-crafted request can't smuggle a different coordinator through.
+  if (actor.role === 'Coordinator') payload.coordinator = actor.userId;
+  await assertValidCoordinator(payload.coordinator);
+  const employee = await Employee.create(payload);
   await logAudit({
     user: actor.userId,
     action: 'employee.create',

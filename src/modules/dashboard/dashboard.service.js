@@ -81,6 +81,7 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     expiringEmployees,
     expiringDocs,
     recentActivity,
+    pendingClientApprovals,
   ] = await Promise.all([
     Deployment.countDocuments(deploymentFilter),
     Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
@@ -92,10 +93,13 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
           { $group: { _id: null, total: { $sum: '$salary' } } },
         ]),
     // A Coordinator's "clients" are the distinct clients their team is
-    // currently placed at — not every client in the system.
+    // currently placed at — not every client in the system. approvalStatus:
+    // 'Approved' on the company-wide count — a client still Pending isn't
+    // really "active" in the business sense yet (it also can't have any
+    // deployments, so the Coordinator branch is already implicitly correct).
     teamIds
       ? Deployment.find({ status: 'Active', worker: { $in: teamIds } }).distinct('client').then((ids) => ids.length)
-      : Client.countDocuments({ status: 'Active' }),
+      : Client.countDocuments({ status: 'Active', approvalStatus: 'Approved' }),
     // Skipped entirely for a Coordinator — see the doc comment above.
     isCoordinator
       ? Promise.resolve([])
@@ -111,6 +115,10 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     isCoordinator
       ? Promise.resolve([])
       : AuditLog.find({}).sort({ createdAt: -1 }).limit(8).populate('user', 'name').lean(),
+    // Company-wide, same visibility line as recentActivity above — a
+    // Coordinator doesn't see this either (they'd only ever see their own
+    // submissions' status on the client itself, not a company-wide count).
+    isCoordinator ? Promise.resolve(null) : Client.countDocuments({ approvalStatus: 'Pending' }),
   ]);
 
   // Workforce by status
@@ -168,6 +176,7 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
       activeClients,
       pendingQuotations: teamIds ? null : quotationsByStatus.Draft,
       expiringSoon: expiringDocuments.length,
+      pendingClientApprovals,
     },
     finance: {
       approvedRevenue: isCoordinator ? null : approvedRevenue,

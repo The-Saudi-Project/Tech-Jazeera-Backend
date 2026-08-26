@@ -4,7 +4,7 @@
  * undefined, transforms double as sanitization.
  */
 import { z } from 'zod';
-import { CLIENT_STATUSES } from './client.model.js';
+import { CLIENT_STATUSES, CLIENT_APPROVAL_STATUSES } from './client.model.js';
 
 const emptyToUndef = (value) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
@@ -59,6 +59,13 @@ export const listClientsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
   search: optionalStr(100),
   status: z.preprocess(emptyToUndef, z.enum(CLIENT_STATUSES).optional()),
+  // Distinct from `status` — see client.model.js. Deployment/quotation client
+  // pickers pass 'Approved'; the Clients list and the Coordinator Activity
+  // page leave it unset to show every approval state.
+  approvalStatus: z.preprocess(emptyToUndef, z.enum(CLIENT_APPROVAL_STATUSES).optional()),
+  // 'Coordinator' → only clients created by a Coordinator account. Powers the
+  // Coordinator Activity page.
+  createdByRole: z.preprocess(emptyToUndef, z.enum(['Coordinator']).optional()),
   industry: optionalStr(80),
   sortBy: z.enum(['companyName', 'createdAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
@@ -67,3 +74,19 @@ export const listClientsSchema = z.object({
 export const clientIdParamSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid client id.'),
 });
+
+/**
+ * Body for deciding a Pending client (Admin, or the submitting Coordinator's
+ * own manager — enforced in the service). Rejecting requires a note so the
+ * Coordinator knows what to fix before resubmitting; approving does not.
+ */
+export const decideClientSchema = z
+  .object({
+    status: z.enum(['Approved', 'Rejected'], { error: 'Decision must be Approved or Rejected.' }),
+    decisionNote: optionalStr(500),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === 'Rejected' && !data.decisionNote) {
+      ctx.addIssue({ code: 'custom', path: ['decisionNote'], message: 'Explain what needs fixing before rejecting.' });
+    }
+  });

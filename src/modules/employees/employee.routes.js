@@ -5,6 +5,8 @@
  * looking employees up); WRITE is Admin/Manager/HR (the people who own
  * workforce data); DELETE is Admin/HR only — it destroys history, so the
  * circle is smaller. Status 'Exited' is the everyday alternative to delete.
+ * CREATE also allows Coordinator — self-service for their own team, always
+ * assigned to themselves, never anyone else's (see employee.service.js).
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -36,7 +38,10 @@ router.get(
 );
 router.post(
   '/',
-  requireRoles('Admin', 'Manager', 'HR'),
+  // Coordinator added here: self-service creation of their own team members,
+  // no approval needed (see docs/PHASE2-PLAN.md). The service force-assigns
+  // `coordinator` to themselves regardless of what the form submits.
+  requireRoles('Admin', 'Manager', 'HR', 'Coordinator'),
   validate({ body: createEmployeeSchema }),
   asyncHandler(employeeController.create)
 );

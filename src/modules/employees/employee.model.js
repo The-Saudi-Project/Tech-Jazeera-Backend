@@ -70,6 +70,10 @@ const employeeSchema = new mongoose.Schema(
     // Referential integrity (must actually be a 'Coordinator' user) is checked
     // in the service layer, not here — Mongoose refs don't validate the target.
     coordinator: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    // Who created this record — null for records predating this field. Lets
+    // Admin/Manager/HR see, at a glance, which employees a Coordinator added
+    // themselves (self-service, no approval — see docs/PHASE2-PLAN.md).
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
     status: { type: String, enum: EMPLOYEE_STATUSES, default: 'Active' },
 

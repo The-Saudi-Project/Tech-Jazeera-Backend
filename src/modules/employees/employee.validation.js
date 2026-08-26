@@ -114,6 +114,9 @@ export const listEmployeesSchema = z.object({
   // P2-M2: a Manager passes 'mine' to see only their coordinators' employees.
   // A Coordinator is scoped to their own team automatically — no param needed.
   team: z.preprocess(emptyToUndef, z.enum(['mine']).optional()),
+  // 'Coordinator' → only employees created by a Coordinator account. Powers
+  // the Coordinator Activity page.
+  createdByRole: z.preprocess(emptyToUndef, z.enum(['Coordinator']).optional()),
   // P2-M2: override the default 30-day expiry-alert window (customizable per
   // viewer — see docs/P2-M2-notes.md). Only meaningful together with alerts=true.
   thresholdDays: z.preprocess(emptyToUndef, z.coerce.number().int().min(1).max(365).optional()),
