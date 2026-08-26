@@ -17,6 +17,12 @@ export async function markBulk(req, res) {
   res.json(new ApiResponse('Attendance saved.', data));
 }
 
+/** PATCH /api/attendance/adjust — 200 → data: record. Correct one worker's day: status + optional actual check-in/out times. */
+export async function adjust(req, res) {
+  const data = await attendanceService.adjustAttendance(req.body, actor(req));
+  res.json(new ApiResponse('Attendance updated.', data));
+}
+
 /** GET /api/attendance — 200 → data: records[] (for the grid) */
 export async function list(req, res) {
   const data = await attendanceService.listAttendance(req.query);

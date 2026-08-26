@@ -74,6 +74,58 @@ export async function markBulk({ date, records }, actor) {
 }
 
 /**
+ * Admin/Manager/HR manually correct ONE worker's day — e.g. they forgot to
+ * sign in/out, or the recorded hours are wrong. `hoursWorked` is computed
+ * from checkInTime/checkOutTime when both are given, and cleared when either
+ * is missing — it is never set independently of the times, so the record
+ * can't end up claiming hours its own check-in/out don't support. Same
+ * "staff always wins" semantics as markBulk: source becomes 'staff', any
+ * self-mark provenance is cleared, and this can override a self-marked day.
+ */
+export async function adjustAttendance({ employee, date, status, checkInTime, checkOutTime, note }, actor) {
+  const exists = await Employee.exists({ _id: employee });
+  if (!exists) throw new ApiError(404, 'Employee not found.');
+
+  if (checkInTime && checkOutTime && new Date(checkOutTime) <= new Date(checkInTime)) {
+    throw new ApiError(400, 'Check-out time must be after check-in time.');
+  }
+
+  const day = toUtcDay(date);
+  const hoursWorked =
+    checkInTime && checkOutTime
+      ? Math.round(((new Date(checkOutTime) - new Date(checkInTime)) / 3_600_000) * 100) / 100
+      : null;
+
+  const record = await Attendance.findOneAndUpdate(
+    { employee, date: day },
+    {
+      $set: {
+        status,
+        note: note ?? '',
+        source: 'staff',
+        verifiedBy: null,
+        selfMarkLocation: { lat: null, lng: null, accuracy: null, distanceMeters: null },
+        checkInTime: checkInTime ?? null,
+        checkOutTime: checkOutTime ?? null,
+        hoursWorked,
+      },
+    },
+    { new: true, upsert: true, runValidators: true }
+  ).lean();
+
+  await logAudit({
+    user: actor.userId,
+    action: 'attendance.adjust',
+    targetType: 'Attendance',
+    targetId: record._id,
+    meta: { employee, date: day.toISOString().slice(0, 10), status, hoursWorked },
+    ip: actor.ip,
+  });
+
+  return record;
+}
+
+/**
  * Raw records in a date range (for the week/month grid). Employee is
  * populated so the grid can label rows. Capped so an over-wide range can't
  * pull the whole collection.

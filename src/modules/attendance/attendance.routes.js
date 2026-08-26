@@ -12,6 +12,7 @@ import { requireRoles, requireStaff } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import {
   markBulkSchema,
+  adjustAttendanceSchema,
   listAttendanceSchema,
   summarySchema,
   exportSchema,
@@ -29,6 +30,12 @@ router.post(
   requireRoles('Admin', 'Manager', 'HR'),
   validate({ body: markBulkSchema }),
   asyncHandler(attendanceController.markBulk)
+);
+router.patch(
+  '/adjust',
+  requireRoles('Admin', 'Manager', 'HR'),
+  validate({ body: adjustAttendanceSchema }),
+  asyncHandler(attendanceController.adjust)
 );
 router.get('/', validate({ query: listAttendanceSchema }), asyncHandler(attendanceController.list));
 router.get(

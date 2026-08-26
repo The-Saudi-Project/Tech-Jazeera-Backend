@@ -65,3 +65,20 @@ export const listMyAttendanceSchema = z.object({
   from: dateOnly.optional(),
   to: dateOnly.optional(),
 });
+
+/**
+ * Admin/Manager/HR manually correcting ONE worker's day — e.g. they forgot
+ * to sign in/out, or the recorded hours are wrong. Distinct from
+ * markBulkSchema: that's fast status-only marking for many workers at once;
+ * this is a precise single-record fix that can also set the actual
+ * check-in/check-out times. `null` (not omitted) means "clear this time" —
+ * the client always sends both keys.
+ */
+export const adjustAttendanceSchema = z.object({
+  employee: id,
+  date: dateOnly,
+  status: z.enum(ATTENDANCE_STATUSES),
+  checkInTime: z.coerce.date().nullable().optional(),
+  checkOutTime: z.coerce.date().nullable().optional(),
+  note: optionalNote,
+});
