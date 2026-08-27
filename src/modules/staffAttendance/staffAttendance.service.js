@@ -76,3 +76,18 @@ export async function listMyAttendance(actor, { from, to } = {}) {
   };
   return StaffAttendance.find(filter).sort({ date: -1 }).limit(60).lean();
 }
+
+/**
+ * Admin/Manager/HR oversight — every Coordinator/HR/Accounts account's
+ * self-marked attendance over a date range, not just the caller's own. This
+ * is the only place that data is visible outside the self-service endpoints
+ * above; there was previously no admin-facing view of it at all.
+ */
+export async function listAllAttendance({ from, to }) {
+  const filter = { date: dayRangeFilter(from, to) };
+  return StaffAttendance.find(filter)
+    .populate('user', 'name role')
+    .sort({ date: -1 })
+    .limit(1000)
+    .lean();
+}

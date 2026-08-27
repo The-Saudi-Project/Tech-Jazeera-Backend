@@ -9,6 +9,9 @@
  * Nothing here ever touches the Employee collection, so it can never skew
  * Active Workers, Monthly Payroll, or any workforce report — see the
  * decision behind this in docs/PHASE2-PLAN.md.
+ *
+ * Admin/Manager/HR can see everyone's records via GET /staff-attendance/all
+ * — this isn't only visible to whoever generated it.
  */
 import mongoose from 'mongoose';
 
