@@ -275,11 +275,18 @@ export async function getOverviewAnalytics({ days }) {
   ]);
 
   // How many cards are actually in play — context for the totals above.
-  const [activeCards, cardsWithTaps, newest] = await Promise.all([
-    NfcCard.countDocuments({ status: 'active' }),
-    NfcTapEvent.distinct('card', { at: { $gte: range.since } }).then((ids) => ids.length),
+  // cardsWithTaps is deliberately scoped to CURRENTLY active card ids, not
+  // just "tapped in range": a card tapped while active and deactivated since
+  // must not inflate this past activeCards (the sentence reads "X of Y active
+  // cards", so X can never exceed Y).
+  const activeCardIds = await NfcCard.find({ status: 'active' }).distinct('_id');
+  const [cardsWithTaps, newest] = await Promise.all([
+    NfcTapEvent.distinct('card', { at: { $gte: range.since }, card: { $in: activeCardIds } }).then(
+      (ids) => ids.length
+    ),
     lastEventAt({}),
   ]);
+  const activeCards = activeCardIds.length;
 
   return {
     days: range.days,
