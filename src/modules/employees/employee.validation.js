@@ -27,6 +27,16 @@ const nullableHours = z.preprocess(
   z.coerce.number({ error: 'Enter a number of hours.' }).min(0).max(24).nullable().optional()
 );
 
+/** Day-of-week (0=Sun..6=Sat) for weeklyOffDay — "" means "no fixed off day" (null).
+ *  No .default() here on purpose: updateEmployeeSchema is this schema made
+ *  .partial(), and PATCH relies on an omitted key meaning "leave unchanged" —
+ *  a Zod default would silently reset every unrelated PATCH to Friday. The
+ *  Mongoose schema default handles "Friday for a brand new employee" instead. */
+const nullableWeekday = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+  z.coerce.number({ error: 'Pick a day of week.' }).int().min(0).max(6).nullable().optional()
+);
+
 // Loose international phone shape — real-world numbers are messy; we only
 // reject obvious garbage, we don't try to fully parse them.
 const phone = z
@@ -72,6 +82,7 @@ export const createEmployeeSchema = z.object({
   // Early-sign-out warning threshold for this employee (My Attendance). "" means
   // "no threshold" (null), not "leave unchanged" — same rule as coordinator.
   expectedDailyHours: nullableHours,
+  weeklyOffDay: nullableWeekday,
   status: z.enum(EMPLOYEE_STATUSES).default('Active'),
 
   emergencyContact: z

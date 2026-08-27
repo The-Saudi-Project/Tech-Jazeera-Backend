@@ -18,6 +18,8 @@ import Deployment from '../deployments/deployment.model.js';
 import Quotation from '../quotations/quotation.model.js';
 import Document from '../documents/document.model.js';
 import AuditLog from '../audit/audit.model.js';
+import Attendance from '../attendance/attendance.model.js';
+import { toUtcDay } from '../attendance/attendance.service.js';
 
 export const EXPIRY_WARNING_DAYS = 30;
 
@@ -72,6 +74,9 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
 
   const employeeStatusFilter = teamIds ? { _id: { $in: teamIds } } : {};
 
+  const markedTodayFilter = { date: toUtcDay(new Date()) };
+  if (teamIds) markedTodayFilter.employee = { $in: teamIds };
+
   const [
     deployedActive,
     empStatusAgg,
@@ -82,6 +87,7 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     expiringDocs,
     recentActivity,
     pendingClientApprovals,
+    markedToday,
   ] = await Promise.all([
     Deployment.countDocuments(deploymentFilter),
     Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
@@ -119,6 +125,10 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     // Coordinator doesn't see this either (they'd only ever see their own
     // submissions' status on the client itself, not a company-wide count).
     isCoordinator ? Promise.resolve(null) : Client.countDocuments({ approvalStatus: 'Pending' }),
+    // "Marked today" — a workforce-activity count, not a financial figure, so
+    // (unlike payroll/revenue/activity above) it stays visible to a
+    // Coordinator, scoped to their own team via markedTodayFilter.
+    Attendance.countDocuments(markedTodayFilter),
   ]);
 
   // Workforce by status
@@ -177,6 +187,7 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
       pendingQuotations: teamIds ? null : quotationsByStatus.Draft,
       expiringSoon: expiringDocuments.length,
       pendingClientApprovals,
+      markedToday,
     },
     finance: {
       approvedRevenue: isCoordinator ? null : approvedRevenue,

@@ -60,6 +60,15 @@ const employeeSchema = new mongoose.Schema(
     // from the employee form, same write circle as the rest of the record.
     expectedDailyHours: { type: Number, default: null, min: 0, max: 24 },
 
+    // The single fixed day this employee is normally off (0=Sun..6=Sat,
+    // matching Date#getUTCDay() and attendance.dates.js's isWeekend
+    // convention). Defaults to Friday (5) for anyone no one has explicitly
+    // configured; null means "no fixed weekly off" (e.g. rotating shifts).
+    // The Records grid uses this to INFER an Off day when no real Attendance
+    // record exists — never written to Attendance itself, and a real record
+    // for that day always wins over this default.
+    weeklyOffDay: { type: Number, default: 5, min: 0, max: 6 },
+
     // Managed by the deployment workflow from M6 — never set via the HR form.
     currentClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
     currentSite: { type: String, trim: true, default: null },
