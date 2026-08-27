@@ -263,16 +263,21 @@ export async function requireOfficeLocation() {
 
 /**
  * A Worker records a "punch" via the Sign in/Sign out buttons in My
- * Attendance:
+ * Attendance — a strict per-day toggle, not a free-for-all:
  *
- *   - The FIRST punch of the day sets checkInTime and marks the day Present.
- *     checkInTime never changes again for that day.
- *   - EVERY punch after that pushes checkOutTime forward to now and
- *     recomputes hoursWorked from the fixed checkInTime. There is no
- *     "closed" state and no error for punching again — a worker can leave
- *     for an errand, come back, and punch any number of times without it
- *     failing. Only the very first and very last punch of the day end up
- *     mattering for hoursWorked.
+ *   - "Signed in" (checkInTime set, checkOutTime not) → this punch signs
+ *     OUT: sets checkOutTime and adds the just-finished session's length
+ *     onto today's running hoursWorked total.
+ *   - Anything else (never punched today, or already signed out) → this
+ *     punch signs IN fresh: new checkInTime, checkOutTime cleared, status
+ *     set to Present. hoursWorked is left untouched here — it carries
+ *     forward as today's accumulated total across every completed session,
+ *     not reset per session.
+ *
+ * A worker can leave for an errand, sign out, and sign back in any number
+ * of times — each full cycle adds to the day's hours rather than replacing
+ * the previous one, and the UI only ever needs to show one button because
+ * the state (signed in vs. not) fully determines what the next punch does.
  *
  * (An earlier version modeled a single open/closed "shift" that had to be
  * checked in before it could be checked out, and couldn't be reopened once
@@ -280,12 +285,6 @@ export async function requireOfficeLocation() {
  * work, not 409. A physical-NFC-tap variant of this was also built and then
  * reverted at the user's request — scope is in-app buttons only; see git
  * history before this revert if a tap-based flow is ever wanted again.)
- *
- * KNOWN LIMITATION, accepted deliberately: because only the first and last
- * punch count, an unaccounted gap — leaving for three hours without
- * punching again until the end of the day — is invisible. hoursWorked will
- * include that gap. This is the tradeoff for letting a worker punch freely
- * without the app erroring if they sign out and back in the same day.
  *
  * A record staff already set for today is NOT overwritten — self-punching is
  * the primary path, but staff correction always wins (P2-M3 decision).
@@ -301,22 +300,23 @@ export async function selfPunch({ employeeId, lat, lng, accuracy }, actor) {
   }
 
   const now = new Date();
-  const isFirstPunchToday = !existing?.checkInTime;
+  const isCurrentlySignedIn = Boolean(existing?.checkInTime) && !existing?.checkOutTime;
 
-  const set = isFirstPunchToday
+  const set = isCurrentlySignedIn
     ? {
+        verifiedBy,
+        checkOutTime: now,
+        hoursWorked:
+          Math.round(((existing.hoursWorked ?? 0) + (now - existing.checkInTime) / 3_600_000) * 100) / 100,
+      }
+    : {
         status: 'Present',
         source: 'self',
         verifiedBy,
         selfMarkLocation: { lat: lat ?? null, lng: lng ?? null, accuracy: accuracy ?? null, distanceMeters: distance },
         checkInTime: now,
         checkOutTime: null,
-        hoursWorked: null,
-      }
-    : {
-        verifiedBy,
-        checkOutTime: now,
-        hoursWorked: Math.round(((now - existing.checkInTime) / 3_600_000) * 100) / 100,
+        // hoursWorked deliberately untouched — see doc comment above.
       };
 
   const record = await Attendance.findOneAndUpdate(
@@ -327,14 +327,14 @@ export async function selfPunch({ employeeId, lat, lng, accuracy }, actor) {
 
   await logAudit({
     user: actor.userId,
-    action: isFirstPunchToday ? 'attendance.checkin' : 'attendance.checkout',
+    action: isCurrentlySignedIn ? 'attendance.checkout' : 'attendance.checkin',
     targetType: 'Attendance',
     targetId: record._id,
-    meta: isFirstPunchToday
-      ? { date: day.toISOString().slice(0, 10), verifiedBy, distanceMeters: distance }
-      : { hoursWorked: record.hoursWorked },
+    meta: isCurrentlySignedIn
+      ? { hoursWorked: record.hoursWorked }
+      : { date: day.toISOString().slice(0, 10), verifiedBy, distanceMeters: distance },
     ip: actor.ip,
   });
 
-  return { action: isFirstPunchToday ? 'checked-in' : 'checked-out', record };
+  return { action: isCurrentlySignedIn ? 'checked-out' : 'checked-in', record };
 }
