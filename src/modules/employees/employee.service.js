@@ -5,6 +5,7 @@
 import Employee from './employee.model.js';
 import User, { MANAGER_ELIGIBLE_ROLES } from '../auth/user.model.js';
 import RefreshToken from '../auth/refreshToken.model.js';
+import Attendance from '../attendance/attendance.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -282,15 +283,38 @@ export async function updateEmployee(id, data, actor) {
   return employee;
 }
 
+/**
+ * Deleting an Employee must not leave anything dangling behind — a real
+ * incident, not a hypothetical: an earlier version of this function deleted
+ * only the Employee row, leaving its Attendance history AND its login (if
+ * any) pointing at an id that no longer resolved to anything. `.populate()`
+ * on those orphaned Attendance rows returned `null` instead of erroring,
+ * which crashed every attempt to load the Records grid. Cascade cleanup
+ * fixes it at the source: no login without a real Employee, no Attendance
+ * without a real Employee.
+ */
 export async function deleteEmployee(id, actor) {
   const employee = await Employee.findByIdAndDelete(id).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
+
+  await Attendance.deleteMany({ employee: id });
+
+  const login = await User.findOne({ employee: id });
+  if (login) {
+    await RefreshToken.deleteMany({ user: login._id });
+    await User.findByIdAndDelete(login._id);
+  }
+
   await logAudit({
     user: actor.userId,
     action: 'employee.delete',
     targetType: 'Employee',
     targetId: employee._id,
-    meta: { employeeId: employee.employeeId, fullName: employee.fullName },
+    meta: {
+      employeeId: employee.employeeId,
+      fullName: employee.fullName,
+      loginRemoved: Boolean(login),
+    },
     ip: actor.ip,
   });
 }

@@ -144,16 +144,24 @@ async function scopeToCoordinatorTeam(filterKey, target, employeeParam, actor) {
  * Raw records in a date range (for the week/month grid and the sign-in/out
  * log). Employee is populated so the grid can label rows. Capped so an
  * over-wide range can't pull the whole collection.
+ *
+ * Deleting an Employee no longer leaves Attendance rows behind (see
+ * deleteEmployee in employee.service.js), but this filters out any record
+ * whose employee reference doesn't resolve — belt and braces against stale
+ * data from before that cleanup existed, or any future gap. `.populate`
+ * silently returns `null` for a dangling reference rather than erroring, so
+ * without this a client renders/crashes on a record with no real employee.
  */
 export async function listAttendance({ from, to, employee }, actor) {
   const filter = { date: dayRangeFilter(from, to) };
   if (employee) filter.employee = employee;
   await scopeToCoordinatorTeam('employee', filter, employee, actor);
-  return Attendance.find(filter)
+  const records = await Attendance.find(filter)
     .populate('employee', 'fullName employeeId')
     .sort({ date: 1 })
     .limit(10_000)
     .lean();
+  return records.filter((r) => r.employee);
 }
 
 /**
