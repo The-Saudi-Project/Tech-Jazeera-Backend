@@ -23,6 +23,17 @@ import {
   listMyReimbursementsSchema,
   reimbursementIdParamSchema,
 } from '../financialRequests/reimbursement.validation.js';
+import {
+  submitExitReentrySchema,
+  listMyExitReentrySchema,
+  exitReentryIdParamSchema,
+} from '../exitDocuments/exitReentry.validation.js';
+import {
+  submitCertificateSchema,
+  listMyCertificatesSchema,
+  certificateIdParamSchema,
+} from '../exitDocuments/certificate.validation.js';
+import { submitTimesheetSchema, listMyTimesheetsSchema } from '../timesheets/timesheet.validation.js';
 import * as meController from './me.controller.js';
 
 const router = Router();
@@ -84,6 +95,56 @@ router.patch(
   '/reimbursements/:id/cancel',
   validate({ params: reimbursementIdParamSchema }),
   asyncHandler(meController.cancelReimbursement)
+);
+
+router.get(
+  '/exit-reentry',
+  validate({ query: listMyExitReentrySchema }),
+  asyncHandler(meController.listExitReentry)
+);
+router.post(
+  '/exit-reentry',
+  validate({ body: submitExitReentrySchema }),
+  asyncHandler(meController.submitExitReentry)
+);
+router.patch(
+  '/exit-reentry/:id/cancel',
+  validate({ params: exitReentryIdParamSchema }),
+  asyncHandler(meController.cancelExitReentry)
+);
+
+router.get(
+  '/certificates',
+  validate({ query: listMyCertificatesSchema }),
+  asyncHandler(meController.listCertificates)
+);
+router.post(
+  '/certificates',
+  validate({ body: submitCertificateSchema }),
+  asyncHandler(meController.submitCertificate)
+);
+router.get(
+  '/certificates/:id/pdf',
+  validate({ params: certificateIdParamSchema }),
+  asyncHandler(meController.certificatePdf)
+);
+router.patch(
+  '/certificates/:id/cancel',
+  validate({ params: certificateIdParamSchema }),
+  asyncHandler(meController.cancelCertificate)
+);
+
+router.get('/assets', asyncHandler(meController.listAssets));
+
+router.get(
+  '/timesheets',
+  validate({ query: listMyTimesheetsSchema }),
+  asyncHandler(meController.listTimesheets)
+);
+router.post(
+  '/timesheets',
+  validate({ body: submitTimesheetSchema }),
+  asyncHandler(meController.submitTimesheet)
 );
 
 /** Same orphaned-upload cleanup as document.routes.js — only the

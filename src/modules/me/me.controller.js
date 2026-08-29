@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import ApiError from '../../utils/ApiError.js';
 import ApiResponse from '../../utils/ApiResponse.js';
 import { contentDisposition } from '../../utils/contentDisposition.js';
+import { sendCertificatePdf } from '../exitDocuments/certificate.controller.js';
 import * as meService from './me.service.js';
 
 const actor = (req) => ({ userId: req.user.id, employee: req.user.employee, ip: req.ip });
@@ -136,4 +137,64 @@ export async function reimbursementReceipt(req, res) {
     throw new ApiError(410, 'The stored receipt is no longer available.');
   }
   await pipeline(Readable.fromWeb(upstream.body), res);
+}
+
+/** POST /api/me/exit-reentry — 201 → data: request (Pending) */
+export async function submitExitReentry(req, res) {
+  const request = await meService.submitMyExitReentry(myEmployeeId(req), req.body, actor(req));
+  res.status(201).json(new ApiResponse('Exit re-entry request submitted.', request));
+}
+
+/** GET /api/me/exit-reentry — 200 → data: { items, total, page, pages } */
+export async function listExitReentry(req, res) {
+  const data = await meService.listMyExitReentry(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your exit re-entry requests.', data));
+}
+
+/** PATCH /api/me/exit-reentry/:id/cancel — 200 → data: request */
+export async function cancelExitReentry(req, res) {
+  const request = await meService.cancelMyExitReentry(myEmployeeId(req), req.params.id, actor(req));
+  res.json(new ApiResponse('Request cancelled.', request));
+}
+
+/** POST /api/me/certificates — 201 → data: request (Pending) */
+export async function submitCertificate(req, res) {
+  const request = await meService.submitMyCertificate(myEmployeeId(req), req.body, actor(req));
+  res.status(201).json(new ApiResponse('Certificate request submitted.', request));
+}
+
+/** GET /api/me/certificates — 200 → data: { items, total, page, pages } */
+export async function listCertificates(req, res) {
+  const data = await meService.listMyCertificates(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your certificate requests.', data));
+}
+
+/** PATCH /api/me/certificates/:id/cancel — 200 → data: null */
+export async function cancelCertificate(req, res) {
+  await meService.cancelMyCertificate(myEmployeeId(req), req.params.id, actor(req));
+  res.json(new ApiResponse('Certificate request cancelled.'));
+}
+
+/** GET /api/me/certificates/:id/pdf — own approved/issued certificate only. */
+export async function certificatePdf(req, res) {
+  const resolved = await meService.resolveMyCertificatePdf(myEmployeeId(req), req.params.id);
+  await sendCertificatePdf(resolved, res);
+}
+
+/** GET /api/me/assets — 200 → data: assignment[] (current + history) */
+export async function listAssets(req, res) {
+  const data = await meService.listMyAssets(myEmployeeId(req));
+  res.json(new ApiResponse('Your assigned assets.', data));
+}
+
+/** POST /api/me/timesheets — 201 → data: timesheet (Submitted) */
+export async function submitTimesheet(req, res) {
+  const timesheet = await meService.submitMyTimesheet(myEmployeeId(req), req.body, actor(req));
+  res.status(201).json(new ApiResponse('Timesheet submitted.', timesheet));
+}
+
+/** GET /api/me/timesheets — 200 → data: { items, total, page, pages } */
+export async function listTimesheets(req, res) {
+  const data = await meService.listMyTimesheets(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your timesheets.', data));
 }

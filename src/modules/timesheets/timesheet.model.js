@@ -1,0 +1,55 @@
+/**
+ * Timesheet — one employee's weekly hours summary, submitted for approval
+ * (P2-M3b, the deferred half of P2-M3 — see docs/P2-M3-notes.md and
+ * docs/PHASE3-PLAN.md's decision to default to a single-level approval
+ * rather than the multi-level signed flow originally scoped).
+ *
+ * Deliberately NOT a second place to enter hours: Attendance (P2-M3's
+ * geofenced self-punch, or a staff mark) is already the one source of daily
+ * hours. A Timesheet is a snapshot/summary of a week's worth of that data,
+ * submitted by the worker as "this is correct" and then approved or
+ * rejected by a supervisor — see timesheet.service.js for the aggregation.
+ *
+ * One document per employee per week (the unique index): resubmitting after
+ * a Rejection updates the SAME document (fresh totals, back to Submitted),
+ * it does not create a new one.
+ */
+import mongoose from 'mongoose';
+
+export const TIMESHEET_STATUSES = ['Submitted', 'Approved', 'Rejected'];
+
+const timesheetSchema = new mongoose.Schema(
+  {
+    employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
+    // Both UTC midnight; periodStart is always a Saturday (KSA week start,
+    // matching attendance.dates.js's weekRange() convention), periodEnd is
+    // periodStart + 6 days.
+    periodStart: { type: Date, required: true },
+    periodEnd: { type: Date, required: true },
+
+    // Snapshotted from Attendance at submission time — see computeTotals()
+    // in the service. Never recomputed live once Approved/Rejected, so a
+    // later attendance correction can't silently change a decided week.
+    totalHours: { type: Number, required: true, default: 0 },
+    daysPresent: { type: Number, default: 0 },
+    daysAbsent: { type: Number, default: 0 },
+    daysLeaveOrSick: { type: Number, default: 0 },
+    daysOff: { type: Number, default: 0 },
+    // How many of the 7 days actually had an Attendance record — lets a
+    // reviewer see incomplete data at a glance (recordedDays < 7).
+    recordedDays: { type: Number, default: 0 },
+
+    status: { type: String, enum: TIMESHEET_STATUSES, default: 'Submitted' },
+    notes: { type: String, trim: true, maxlength: 500 },
+
+    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    decidedAt: { type: Date, default: null },
+    decisionNote: { type: String, trim: true, maxlength: 500 },
+  },
+  { timestamps: true }
+);
+
+timesheetSchema.index({ employee: 1, periodStart: 1 }, { unique: true });
+timesheetSchema.index({ status: 1, periodStart: -1 });
+
+export default mongoose.model('Timesheet', timesheetSchema);

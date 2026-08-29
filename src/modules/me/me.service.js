@@ -12,6 +12,10 @@ import * as leaveService from '../leave/leave.service.js';
 import * as attendanceService from '../attendance/attendance.service.js';
 import * as advanceService from '../financialRequests/advance.service.js';
 import * as reimbursementService from '../financialRequests/reimbursement.service.js';
+import * as exitReentryService from '../exitDocuments/exitReentry.service.js';
+import * as certificateService from '../exitDocuments/certificate.service.js';
+import * as assetService from '../assets/asset.service.js';
+import * as timesheetService from '../timesheets/timesheet.service.js';
 
 export async function getMyProfile(employeeId) {
   const employee = await Employee.findById(employeeId)
@@ -93,4 +97,45 @@ export async function cancelMyReimbursement(employeeId, id, actor) {
 
 export async function getMyReceiptFile(employeeId, id) {
   return reimbursementService.getMyReceiptFile(employeeId, id);
+}
+
+export async function submitMyExitReentry(employeeId, body, actor) {
+  return exitReentryService.submitExitReentry(employeeId, body, actor);
+}
+
+export async function listMyExitReentry(employeeId, query) {
+  return exitReentryService.listOwnExitReentry(employeeId, query);
+}
+
+export async function cancelMyExitReentry(employeeId, id, actor) {
+  return exitReentryService.cancelExitReentry(employeeId, id, actor);
+}
+
+export async function submitMyCertificate(employeeId, body, actor) {
+  return certificateService.submitCertificate(employeeId, body, actor);
+}
+
+export async function listMyCertificates(employeeId, query) {
+  return certificateService.listOwnCertificates(employeeId, query);
+}
+
+export async function cancelMyCertificate(employeeId, id, actor) {
+  return certificateService.cancelCertificate(employeeId, id, actor);
+}
+
+export async function resolveMyCertificatePdf(employeeId, id) {
+  return certificateService.resolveCertificateForPdf(id, employeeId);
+}
+
+/** Read-only — a Worker never assigns/returns their own assets. */
+export async function listMyAssets(employeeId) {
+  return assetService.listEmployeeAssignments(employeeId);
+}
+
+export async function submitMyTimesheet(employeeId, body, actor) {
+  return timesheetService.submitTimesheet(employeeId, body, actor);
+}
+
+export async function listMyTimesheets(employeeId, query) {
+  return timesheetService.listOwnTimesheets(employeeId, query);
 }
