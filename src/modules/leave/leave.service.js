@@ -23,8 +23,10 @@ function daysInclusive(start, end) {
   return Math.round((end - start) / MS_PER_DAY) + 1;
 }
 
-/** Full months of continuous service between `joiningDate` and `now`. */
-function monthsOfService(joiningDate, now) {
+/** Full months of continuous service between `joiningDate` and `now`. Also
+ *  used by the EOSB calculator (settlement.service.js) — one tenure formula,
+ *  not two that could quietly drift apart. */
+export function monthsOfService(joiningDate, now) {
   let months = (now.getFullYear() - joiningDate.getFullYear()) * 12 + (now.getMonth() - joiningDate.getMonth());
   if (now.getDate() < joiningDate.getDate()) months -= 1;
   return Math.max(0, months);

@@ -10,6 +10,8 @@ import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
 import * as leaveService from '../leave/leave.service.js';
 import * as attendanceService from '../attendance/attendance.service.js';
+import * as advanceService from '../financialRequests/advance.service.js';
+import * as reimbursementService from '../financialRequests/reimbursement.service.js';
 
 export async function getMyProfile(employeeId) {
   const employee = await Employee.findById(employeeId)
@@ -63,4 +65,32 @@ export async function listMyAttendance(employeeId, { from, to } = {}) {
     to: to ?? today.toISOString().slice(0, 10),
     employee: employeeId,
   });
+}
+
+export async function submitMyAdvance(employeeId, body, actor) {
+  return advanceService.submitAdvance(employeeId, body, actor);
+}
+
+export async function listMyAdvances(employeeId, query) {
+  return advanceService.listOwnAdvances(employeeId, query);
+}
+
+export async function cancelMyAdvance(employeeId, id, actor) {
+  return advanceService.cancelAdvance(employeeId, id, actor);
+}
+
+export async function submitMyReimbursement(employeeId, body, file, actor) {
+  return reimbursementService.submitReimbursement(employeeId, body, file, actor);
+}
+
+export async function listMyReimbursements(employeeId, query) {
+  return reimbursementService.listOwnReimbursements(employeeId, query);
+}
+
+export async function cancelMyReimbursement(employeeId, id, actor) {
+  return reimbursementService.cancelReimbursement(employeeId, id, actor);
+}
+
+export async function getMyReceiptFile(employeeId, id) {
+  return reimbursementService.getMyReceiptFile(employeeId, id);
 }

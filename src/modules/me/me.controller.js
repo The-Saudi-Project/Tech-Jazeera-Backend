@@ -89,3 +89,51 @@ export async function listAttendance(req, res) {
   const data = await meService.listMyAttendance(myEmployeeId(req), req.query);
   res.json(new ApiResponse('Your attendance.', data));
 }
+
+/** POST /api/me/advances — 201 → data: advance (Pending) */
+export async function submitAdvance(req, res) {
+  const advance = await meService.submitMyAdvance(myEmployeeId(req), req.body, actor(req));
+  res.status(201).json(new ApiResponse('Advance request submitted.', advance));
+}
+
+/** GET /api/me/advances — 200 → data: { items, total, page, pages } */
+export async function listAdvances(req, res) {
+  const data = await meService.listMyAdvances(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your advance requests.', data));
+}
+
+/** PATCH /api/me/advances/:id/cancel — 200 → data: advance */
+export async function cancelAdvance(req, res) {
+  const advance = await meService.cancelMyAdvance(myEmployeeId(req), req.params.id, actor(req));
+  res.json(new ApiResponse('Advance request cancelled.', advance));
+}
+
+/** POST /api/me/reimbursements (multipart: file + fields) — 201 → data: claim */
+export async function submitReimbursement(req, res) {
+  const claim = await meService.submitMyReimbursement(myEmployeeId(req), req.body, req.file, actor(req));
+  res.status(201).json(new ApiResponse('Reimbursement claim submitted.', claim));
+}
+
+/** GET /api/me/reimbursements — 200 → data: { items, total, page, pages } */
+export async function listReimbursements(req, res) {
+  const data = await meService.listMyReimbursements(myEmployeeId(req), req.query);
+  res.json(new ApiResponse('Your reimbursement claims.', data));
+}
+
+/** PATCH /api/me/reimbursements/:id/cancel — 200 → data: null */
+export async function cancelReimbursement(req, res) {
+  await meService.cancelMyReimbursement(myEmployeeId(req), req.params.id, actor(req));
+  res.json(new ApiResponse('Reimbursement claim cancelled.'));
+}
+
+/** GET /api/me/reimbursements/:id/receipt — streams own receipt bytes only. */
+export async function reimbursementReceipt(req, res) {
+  const fileData = await meService.getMyReceiptFile(myEmployeeId(req), req.params.id);
+  res.setHeader('Content-Type', fileData.mimeType);
+  res.setHeader('Content-Disposition', contentDisposition(fileData.originalName));
+  const upstream = await fetch(fileData.url);
+  if (!upstream.ok || !upstream.body) {
+    throw new ApiError(410, 'The stored receipt is no longer available.');
+  }
+  await pipeline(Readable.fromWeb(upstream.body), res);
+}

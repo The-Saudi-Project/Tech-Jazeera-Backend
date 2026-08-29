@@ -40,6 +40,8 @@ import { serveNfcMedia } from './modules/nfc/nfc.upload.js';
 import userRoutes from './modules/users/user.routes.js';
 import leaveRoutes from './modules/leave/leave.routes.js';
 import holidayRoutes from './modules/holidays/holiday.routes.js';
+import settlementRoutes from './modules/eosb/settlement.routes.js';
+import financialRequestsRoutes from './modules/financialRequests/financialRequests.routes.js';
 import meRoutes from './modules/me/me.routes.js';
 import staffAttendanceRoutes from './modules/staffAttendance/staffAttendance.routes.js';
 
@@ -94,6 +96,8 @@ app.use('/api/nfc', nfcRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', leaveRoutes); // owns /api/leave-types and /api/leave
 app.use('/api/holidays', holidayRoutes);
+app.use('/api/eosb', settlementRoutes);
+app.use('/api/financial-requests', financialRequestsRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/staff-attendance', staffAttendanceRoutes);
 
