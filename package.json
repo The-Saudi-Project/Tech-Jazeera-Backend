@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "seed:admin": "node src/scripts/seed-admin.js"
+    "seed:admin": "node src/scripts/seed-admin.js",
+    "migrate:unify-employees": "node src/scripts/migrate-unify-employees.js"
   },
   "engines": {
     "node": ">=20.6.0"

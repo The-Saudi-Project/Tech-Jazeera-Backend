@@ -130,6 +130,15 @@ function evaluateManual(employee, leaveType, requestedDays, now) {
 
 /** Compute eligibility for one employee/leaveType/requestedDays combination. */
 export async function evaluateEligibility(employee, leaveType, requestedDays, now = new Date()) {
+  // joiningDate is required for 'Client' employees but optional for 'Own'
+  // ones (see employee.model.js) — every recurrence type below needs it, so
+  // fail with a clear message rather than crash if it's genuinely missing.
+  if (!employee.joiningDate) {
+    throw new ApiError(
+      400,
+      'This employee has no joining date on file — add one before requesting leave.'
+    );
+  }
   if (leaveType.recurrence === 'Annual') return evaluateAnnual(employee, leaveType, requestedDays, now);
   if (leaveType.recurrence === 'ContractCycle') {
     return evaluateContractCycle(employee, leaveType, requestedDays, now);

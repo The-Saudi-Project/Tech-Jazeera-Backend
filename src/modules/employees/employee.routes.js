@@ -58,9 +58,10 @@ router.delete(
   asyncHandler(employeeController.remove)
 );
 
-// Provision a Worker login for this employee (P2-M1). Admin/HR only — the same
-// circle that owns workforce data owns account creation for it. Returns a
-// one-time temporary password for the admin to hand over.
+// Provision a login for this employee, any role except Admin — the ONE way
+// to create a login in this app. Admin/HR only — the same circle that owns
+// workforce data owns account creation for it. Returns a one-time temporary
+// password for the admin to hand over.
 router.post(
   '/:id/user',
   requireRoles('Admin', 'HR'),
@@ -68,7 +69,7 @@ router.post(
   asyncHandler(employeeController.createLogin)
 );
 
-// Reset a Worker's password — the recovery path when a temp password is
+// Reset a login's password — the recovery path when a temp password is
 // lost or forgotten. Same circle as provisioning the login in the first place.
 router.post(
   '/:id/user/reset-password',

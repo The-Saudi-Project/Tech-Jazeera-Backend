@@ -61,7 +61,9 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
   // once, ahead of the parallel batch below, so every filter that needs it
   // shares the same scope.
   const isCoordinator = actor?.role === 'Coordinator';
-  const teamIds = isCoordinator ? await Employee.find({ coordinator: actor.userId }).distinct('_id') : null;
+  const teamIds = isCoordinator
+    ? await Employee.find({ coordinator: actor.userId, type: 'Client' }).distinct('_id')
+    : null;
 
   const employeeExpiryFilter = { status: { $ne: 'Exited' }, $or: identityExpiryOr };
   if (teamIds) employeeExpiryFilter._id = { $in: teamIds };
@@ -72,7 +74,10 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
   const deploymentFilter = { status: 'Active' };
   if (teamIds) deploymentFilter.worker = { $in: teamIds };
 
-  const employeeStatusFilter = teamIds ? { _id: { $in: teamIds } } : {};
+  // "Active Workers"/"Workforce by status" mean the supplied workforce, same
+  // as before Own-type employees existed — type: 'Client' keeps it that way
+  // now that the Employee collection holds both populations.
+  const employeeStatusFilter = { type: 'Client', ...(teamIds ? { _id: { $in: teamIds } } : {}) };
 
   const markedTodayFilter = { date: toUtcDay(new Date()) };
   if (teamIds) markedTodayFilter.employee = { $in: teamIds };
@@ -92,10 +97,13 @@ export async function getDashboard({ thresholdDays, actor } = {}) {
     Deployment.countDocuments(deploymentFilter),
     Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
     // Payroll — skipped entirely for a Coordinator, see the doc comment above.
+    // type: 'Client' — this figure is the supplied workforce's pay, not
+    // internal staff salaries (an Own-type employee's salary, if ever set,
+    // must never silently flow into this).
     isCoordinator
       ? Promise.resolve([])
       : Employee.aggregate([
-          { $match: { status: { $ne: 'Exited' } } },
+          { $match: { status: { $ne: 'Exited' }, type: 'Client' } },
           { $group: { _id: null, total: { $sum: '$salary' } } },
         ]),
     // A Coordinator's "clients" are the distinct clients their team is

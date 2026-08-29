@@ -1,12 +1,15 @@
 /**
- * User — a staff member who can LOG IN to the ERP.
+ * User — a login account for the ERP.
  *
- * Deliberately separate from Employee (M4). A User is an account with a
- * password and a role; an Employee is a workforce record with passports,
- * visas and deployments. A deployed welder is an Employee but usually not a
- * User; the accountant is a User but may not be a deployed Employee. The two
- * have independent lifecycles, so they are separate collections (per our
- * references-over-embedding rule).
+ * Deliberately separate from Employee: a User is credentials + a role; an
+ * Employee is the person record (workforce details, documents, org
+ * placement). Every non-Admin User is linked to exactly one Employee
+ * (`employee` below) — the person's full details live there, not here.
+ * Admin is the one exception: a pure system-access account with no workforce
+ * presence, so it has no Employee. The two stay separate collections (not
+ * merged into one) because logins and people still have independent
+ * lifecycles — a person can exist with no login at all, and a login is
+ * revoked/deactivated without deleting the person record it came from.
  */
 import mongoose from 'mongoose';
 
@@ -27,7 +30,10 @@ import mongoose from 'mongoose';
  * access.
  *
  * `Operations` and `Viewer` were removed after P2-M2 — never had a real
- * account and weren't part of the intended role set going forward.
+ * account and weren't part of the intended role set going forward. IT and
+ * Office Staff are Employee.designation values, not roles — someone in
+ * either position logs in as whichever of the roles above actually matches
+ * their system access (typically HR or Accounts).
  */
 export const ROLES = [
   'Admin',
@@ -38,8 +44,8 @@ export const ROLES = [
   'Worker',
 ];
 
-/** Roles that can be a Coordinator's line manager via `managedBy`. */
-export const COORDINATOR_MANAGER_ROLES = ['Admin', 'Manager'];
+/** Roles eligible to be an Employee's `manager` (Employee.manager / .coordinator's manager). */
+export const MANAGER_ELIGIBLE_ROLES = ['Admin', 'Manager'];
 
 const userSchema = new mongoose.Schema(
   {
@@ -56,14 +62,9 @@ const userSchema = new mongoose.Schema(
     // Self-service profile photo — a public Cloudinary URL, or null. Every
     // role can set their own; see auth.service.js updateAvatar/removeAvatar.
     avatarUrl: { type: String, default: null },
-    // P2-M1: links a login to its workforce record. Optional and null for
-    // staff (an accountant is a User with no Employee). A Worker's login maps
-    // to exactly ONE employee — enforced by the partial unique index below.
+    // Links a login to its person record. Universal for every non-Admin
+    // login (Own or Client Employee.type alike) — null only for Admin.
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', default: null },
-    // P2-M2: only meaningful when role === 'Coordinator' — the Admin/Manager
-    // this coordinator reports to. Lets a Manager's "My Team" view include
-    // their coordinators' employees, not just employees they hold directly.
-    managedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );

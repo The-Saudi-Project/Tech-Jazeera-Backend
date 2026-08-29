@@ -1,11 +1,11 @@
 /**
  * Staff-user routes (P2-M2).
  *
- * Role design: only Admin creates/edits staff logins — account provisioning
- * is the smallest, most sensitive circle in the app. Manager and HR may LIST
- * (Manager to pick a coordinator's manager and see their team's roster; HR
- * because they assign an employee's coordinator from the employee form and
- * need the Coordinator list to populate that picker) but not create or edit.
+ * Role design: only Admin edits staff logins — account management is the
+ * smallest, most sensitive circle in the app. Manager and HR may LIST (to
+ * pick a Coordinator, or an Employee's manager, in a picker) but not edit.
+ * Creation lives on the employees module (every login starts from an
+ * Employee record) — see employee.routes.js's POST /:id/user.
  * Every route is staff-only by definition (it manages staff accounts), so
  * requireStaff isn't needed on top of the explicit roles.
  */
@@ -14,12 +14,7 @@ import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
-import {
-  createStaffUserSchema,
-  updateStaffUserSchema,
-  listStaffUsersSchema,
-  userIdParamSchema,
-} from './user.validation.js';
+import { updateStaffUserSchema, listStaffUsersSchema, userIdParamSchema } from './user.validation.js';
 import * as userController from './user.controller.js';
 
 const router = Router();
@@ -31,12 +26,6 @@ router.get(
   requireRoles('Admin', 'Manager', 'HR'),
   validate({ query: listStaffUsersSchema }),
   asyncHandler(userController.list)
-);
-router.post(
-  '/',
-  requireRoles('Admin'),
-  validate({ body: createStaffUserSchema }),
-  asyncHandler(userController.create)
 );
 router.patch(
   '/:id',

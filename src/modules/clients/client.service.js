@@ -45,7 +45,7 @@ export async function listClients({ page, limit, search, status, approvalStatus,
       .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate('createdBy', 'name role managedBy')
+      .populate({ path: 'createdBy', select: 'name role employee', populate: { path: 'employee', select: 'manager' } })
       .lean(),
     Client.countDocuments(filter),
   ]);
@@ -54,7 +54,7 @@ export async function listClients({ page, limit, search, status, approvalStatus,
 
 export async function getClient(id) {
   const client = await Client.findById(id)
-    .populate('createdBy', 'name role managedBy')
+    .populate({ path: 'createdBy', select: 'name role employee', populate: { path: 'employee', select: 'manager' } })
     .populate('decidedBy', 'name')
     .lean();
   if (!client) throw new ApiError(404, 'Client not found.');
@@ -135,9 +135,10 @@ export async function updateClient(id, data, actor) {
 /**
  * Approve or reject a Pending client. Admin may always decide; a Manager may
  * only decide submissions from a Coordinator who actually reports to them
- * (User.managedBy) — not just any pending client. Approving flips the client
- * live for deployment/quotation pickers; rejecting requires a note (enforced
- * by decideClientSchema) so the Coordinator knows what to fix.
+ * (Employee.manager, via the Coordinator's own linked Employee record) — not
+ * just any pending client. Approving flips the client live for deployment/
+ * quotation pickers; rejecting requires a note (enforced by
+ * decideClientSchema) so the Coordinator knows what to fix.
  */
 export async function decideClient(id, { status, decisionNote }, actor) {
   const client = await Client.findById(id);
@@ -147,8 +148,14 @@ export async function decideClient(id, { status, decisionNote }, actor) {
   }
 
   if (actor.role !== 'Admin') {
-    const submitter = await User.findById(client.createdBy).select('managedBy').lean();
-    if (!submitter || submitter.managedBy?.toString() !== actor.userId) {
+    // "Is this Manager actually this Coordinator's manager" now reads
+    // through the Coordinator's own Employee record — Employee.manager
+    // replaced User.managedBy as the hierarchy field.
+    const submitter = await User.findById(client.createdBy).select('employee').lean();
+    const submitterEmployee = submitter?.employee
+      ? await Employee.findById(submitter.employee).select('manager').lean()
+      : null;
+    if (!submitterEmployee || submitterEmployee.manager?.toString() !== actor.userId) {
       throw new ApiError(403, "You are not this coordinator's manager.");
     }
   }
