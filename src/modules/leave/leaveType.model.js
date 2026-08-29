@@ -38,6 +38,17 @@ const leaveTypeSchema = new mongoose.Schema(
     // continuous service — the "must complete a contract period" gate.
     minServiceMonths: { type: Number, min: 0, max: 600, default: 0 },
 
+    // Optional per-request ceiling — mainly for 'Manual' statutory categories
+    // that Saudi Labor Law (or company policy) caps per event rather than
+    // per year (e.g. Emergency Leave, 5 days). null = no cap, checked in
+    // leave.service.js at submission time.
+    maxDaysPerRequest: { type: Number, min: 1, max: 365, default: null },
+    // Whether this leave is paid — informational today (no Payroll module
+    // yet), but the PRD's statutory categories are explicit about it
+    // ("Emergency Leave (5 days paid)") and Payroll (P2-M5) will need this
+    // when it exists, so it's captured now rather than backfilled later.
+    isPaid: { type: Boolean, default: true },
+
     // Deactivate instead of delete — existing LeaveRequests reference this
     // type by id (and keep a name snapshot), so deleting would either orphan
     // history or silently corrupt it. Same precedent as Employee's

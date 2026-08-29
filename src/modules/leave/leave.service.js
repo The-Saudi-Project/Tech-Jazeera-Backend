@@ -207,6 +207,13 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
   if (endDate < startDate) throw new ApiError(400, 'End date cannot be before the start date.');
   const days = daysInclusive(startDate, endDate);
 
+  if (leaveType.maxDaysPerRequest && days > leaveType.maxDaysPerRequest) {
+    throw new ApiError(
+      400,
+      `${leaveType.name} is capped at ${leaveType.maxDaysPerRequest} day${leaveType.maxDaysPerRequest > 1 ? 's' : ''} per request.`
+    );
+  }
+
   const overlap = await LeaveRequest.findOne({
     employee: employee._id,
     status: { $in: ['AutoApproved', 'Approved', 'PendingReview'] },

@@ -39,6 +39,7 @@ import nfcPublicRoutes from './modules/nfc/nfc.public.routes.js';
 import { serveNfcMedia } from './modules/nfc/nfc.upload.js';
 import userRoutes from './modules/users/user.routes.js';
 import leaveRoutes from './modules/leave/leave.routes.js';
+import holidayRoutes from './modules/holidays/holiday.routes.js';
 import meRoutes from './modules/me/me.routes.js';
 import staffAttendanceRoutes from './modules/staffAttendance/staffAttendance.routes.js';
 
@@ -92,6 +93,7 @@ app.use('/api/nfc', nfcRoutes);
 // self-service "me" surface a Worker's ESS portal runs on.
 app.use('/api/users', userRoutes);
 app.use('/api', leaveRoutes); // owns /api/leave-types and /api/leave
+app.use('/api/holidays', holidayRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/staff-attendance', staffAttendanceRoutes);
 

@@ -21,6 +21,8 @@ export const createLeaveTypeSchema = z
     cycleYears: optionalYears(20),
     daysPerCycle: optionalDays,
     minServiceMonths: z.coerce.number().min(0).max(600).default(0),
+    maxDaysPerRequest: z.preprocess(emptyToUndef, z.coerce.number().min(1).max(365).optional()),
+    isPaid: z.boolean().default(true),
     isActive: z.boolean().default(true),
   })
   .superRefine((data, ctx) => {
@@ -57,6 +59,8 @@ export const updateLeaveTypeSchema = z.object({
   cycleYears: optionalYears(20),
   daysPerCycle: optionalDays,
   minServiceMonths: z.coerce.number().min(0).max(600).optional(),
+  maxDaysPerRequest: z.preprocess(emptyToUndef, z.coerce.number().min(1).max(365).optional()),
+  isPaid: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
 
