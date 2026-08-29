@@ -1,0 +1,82 @@
+/**
+ * PayrollRun — one calendar month's payroll for the supplied workforce
+ * (P2-M5, the next Phase 2 backbone step after P2-M3b's timesheet
+ * approval). One document per (year, month); `lines` holds one entry per
+ * eligible employee, computed server-side and editable (Draft only) before
+ * being locked in with `finalize`.
+ *
+ * Schema choices, justified:
+ *  - Every money figure on a line is COMPUTED here, never trusted from the
+ *    client — same discipline as quotation totals and the EOSB calculator.
+ *  - `basicSalary`/`housingAllowance`/`transportAllowance` are SNAPSHOTS of
+ *    the employee's pay at run-creation time (Employee.basicSalary etc., or
+ *    the whole `salary` as Basic if no breakdown is configured — see
+ *    employee.model.js). A later salary change must never silently rewrite
+ *    a past month's payslip.
+ *  - `gosiDeduction` is entered by HR/Accounts, never computed: GOSI rates
+ *    differ by nationality/coverage and change over time, and this app has
+ *    no verified source for the correct current rate — same "don't invent
+ *    a legally exact figure" rule as the EOSB exit-reason scoping and the
+ *    unconfirmed statutory leave day-caps. Defaults to 0, not a guessed %.
+ *  - `approvedHours` is INFORMATIONAL — summed from Approved Timesheets
+ *    (P2-M3b) overlapping this month. It does not feed netPay: overtime-rate
+ *    calculation is P3-E's job, not yet built. Showing it here is the "make
+ *    hours available to payroll" half of the plan; multiplying it into pay
+ *    is the next connection point once P3-E exists.
+ */
+import mongoose from 'mongoose';
+
+export const PAYROLL_STATUSES = ['Draft', 'Finalized'];
+
+/** One ad-hoc deduction line (e.g. an absence, a recorded loan-repayment
+ *  note). _id disabled — a value object, replaced wholesale on edit. */
+const deductionSchema = new mongoose.Schema(
+  {
+    label: { type: String, required: true, trim: true, maxlength: 100 },
+    amount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
+const payrollLineSchema = new mongoose.Schema({
+  employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
+  employeeName: { type: String, required: true },
+  employeeCode: { type: String, required: true },
+
+  basicSalary: { type: Number, required: true, min: 0 },
+  housingAllowance: { type: Number, default: 0, min: 0 },
+  transportAllowance: { type: Number, default: 0, min: 0 },
+  otherAllowances: { type: Number, default: 0, min: 0 },
+  grossPay: { type: Number, required: true, min: 0 },
+
+  approvedHours: { type: Number, default: 0, min: 0 },
+
+  gosiDeduction: { type: Number, default: 0, min: 0 },
+  otherDeductions: { type: [deductionSchema], default: [] },
+  totalDeductions: { type: Number, default: 0, min: 0 },
+
+  netPay: { type: Number, required: true },
+});
+
+const payrollRunSchema = new mongoose.Schema(
+  {
+    periodYear: { type: Number, required: true, min: 2020, max: 2100 },
+    periodMonth: { type: Number, required: true, min: 1, max: 12 },
+    status: { type: String, enum: PAYROLL_STATUSES, default: 'Draft' },
+    lines: { type: [payrollLineSchema], default: [] },
+
+    totalGross: { type: Number, default: 0 },
+    totalDeductions: { type: Number, default: 0 },
+    totalNet: { type: Number, default: 0 },
+
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    finalizedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    finalizedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+// One run per calendar month — re-running is "edit the existing Draft", not create a second.
+payrollRunSchema.index({ periodYear: 1, periodMonth: 1 }, { unique: true });
+
+export default mongoose.model('PayrollRun', payrollRunSchema);

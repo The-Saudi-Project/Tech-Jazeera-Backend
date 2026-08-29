@@ -28,6 +28,12 @@ const nullableHours = z.preprocess(
   z.coerce.number({ error: 'Enter a number of hours.' }).min(0).max(24).nullable().optional()
 );
 
+/** Like nullableHours, but for a SAR amount (basicSalary/housingAllowance/transportAllowance). */
+const nullableAmount = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+  z.coerce.number({ error: 'Enter an amount.' }).min(0).max(1_000_000).nullable().optional()
+);
+
 /** Day-of-week (0=Sun..6=Sat) for weeklyOffDay — "" means "no fixed off day" (null).
  *  No .default() here on purpose: updateEmployeeSchema is this schema made
  *  .partial(), and PATCH relies on an omitted key meaning "leave unchanged" —
@@ -92,6 +98,11 @@ const employeeObjectSchema = z
       emptyToUndef,
       z.coerce.number({ error: 'Salary must be a number.' }).min(0).max(1_000_000).optional()
     ),
+    // Optional WPS breakdown of `salary` — see employee.model.js. "" clears
+    // it (nullableAmount), not "leave unchanged" — same rule as coordinator/weeklyOffDay.
+    basicSalary: nullableAmount,
+    housingAllowance: nullableAmount,
+    transportAllowance: nullableAmount,
     accommodation: optionalStr(100),
     // Early-sign-out warning threshold for this employee (My Attendance). "" means
     // "no threshold" (null), not "leave unchanged" — same rule as coordinator.

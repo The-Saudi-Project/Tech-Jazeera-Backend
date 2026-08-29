@@ -45,6 +45,9 @@ import financialRequestsRoutes from './modules/financialRequests/financialReques
 import assetRoutes from './modules/assets/asset.routes.js';
 import exitDocumentsRoutes from './modules/exitDocuments/exitDocuments.routes.js';
 import timesheetRoutes from './modules/timesheets/timesheet.routes.js';
+import payrollRoutes from './modules/payroll/payroll.routes.js';
+import invoiceRoutes from './modules/invoices/invoice.routes.js';
+import expenseRoutes from './modules/expenses/expense.routes.js';
 import meRoutes from './modules/me/me.routes.js';
 import staffAttendanceRoutes from './modules/staffAttendance/staffAttendance.routes.js';
 
@@ -104,6 +107,9 @@ app.use('/api/financial-requests', financialRequestsRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/exit-documents', exitDocumentsRoutes);
 app.use('/api/timesheets', timesheetRoutes);
+app.use('/api/payroll', payrollRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/expenses', expenseRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/staff-attendance', staffAttendanceRoutes);
 

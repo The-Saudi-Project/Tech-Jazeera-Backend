@@ -1,0 +1,144 @@
+/**
+ * Invoice service — create from an Approved quotation, record payments,
+ * list/get/delete. Money is always server-computed, same discipline as
+ * quotation totals.
+ */
+import Quotation from '../quotations/quotation.model.js';
+import { nextSequence } from '../quotations/counter.model.js';
+import Invoice from './invoice.model.js';
+import ApiError from '../../utils/ApiError.js';
+import { logAudit } from '../audit/audit.service.js';
+
+const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** Identical math to quotation.service.js's computeTotals — kept local
+ *  since an invoice freezes its own totals at creation, never recomputed
+ *  from a quotation that might change afterward. */
+function computeTotals(lineItems) {
+  let subtotal = 0;
+  let discountTotal = 0;
+  let taxTotal = 0;
+  for (const li of lineItems) {
+    const gross = li.quantity * li.unitPrice;
+    const discount = gross * ((li.discount ?? 0) / 100);
+    const net = gross - discount;
+    const tax = net * ((li.taxRate ?? 0) / 100);
+    subtotal += gross;
+    discountTotal += discount;
+    taxTotal += tax;
+  }
+  return {
+    subtotal: money(subtotal),
+    discountTotal: money(discountTotal),
+    taxTotal: money(taxTotal),
+    grandTotal: money(subtotal - discountTotal + taxTotal),
+  };
+}
+
+async function newInvoiceNumber() {
+  const seq = await nextSequence('invoice');
+  return `INV-${String(seq).padStart(4, '0')}`;
+}
+
+export async function createInvoice({ quotation: quotationId, dueDate }, actor) {
+  const quotation = await Quotation.findById(quotationId).lean();
+  if (!quotation) throw new ApiError(404, 'Quotation not found.');
+  if (quotation.status !== 'Approved') {
+    throw new ApiError(400, 'Only an approved quotation can be invoiced.');
+  }
+  const existing = await Invoice.findOne({ quotation: quotationId }).lean();
+  if (existing) throw new ApiError(409, `This quotation already has an invoice (${existing.invoiceNumber}).`);
+
+  const totals = computeTotals(quotation.lineItems);
+  const invoice = await Invoice.create({
+    invoiceNumber: await newInvoiceNumber(),
+    quotation: quotation._id,
+    quotationNumber: quotation.quotationNumber,
+    client: quotation.client,
+    clientName: quotation.clientName,
+    dueDate: dueDate ?? null,
+    lineItems: quotation.lineItems,
+    notes: quotation.notes,
+    ...totals,
+    // Nothing paid yet — the whole grand total is outstanding from day one.
+    balanceDue: totals.grandTotal,
+  });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'invoice.create',
+    targetType: 'Invoice',
+    targetId: invoice._id,
+    meta: { number: invoice.invoiceNumber, from: quotation.quotationNumber, grandTotal: invoice.grandTotal },
+    ip: actor.ip,
+  });
+  return invoice.toObject();
+}
+
+export async function listInvoices({ page, limit, client, quotation, status, search }) {
+  const conditions = [];
+  if (client) conditions.push({ client });
+  if (quotation) conditions.push({ quotation });
+  if (status) conditions.push({ status });
+  if (search) {
+    const rx = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    conditions.push({ $or: [{ invoiceNumber: rx }, { clientName: rx }] });
+  }
+  const filter = conditions.length > 0 ? { $and: conditions } : {};
+
+  const [items, total] = await Promise.all([
+    Invoice.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Invoice.countDocuments(filter),
+  ]);
+  return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
+}
+
+export async function getInvoice(id) {
+  const invoice = await Invoice.findById(id).lean();
+  if (!invoice) throw new ApiError(404, 'Invoice not found.');
+  return invoice;
+}
+
+export async function recordPayment(id, data, actor) {
+  const invoice = await Invoice.findById(id);
+  if (!invoice) throw new ApiError(404, 'Invoice not found.');
+  if (invoice.status === 'Paid') throw new ApiError(400, 'This invoice is already fully paid.');
+
+  if (data.amount > invoice.balanceDue) {
+    throw new ApiError(400, `That exceeds the balance due (SAR ${invoice.balanceDue}).`);
+  }
+
+  invoice.payments.push({ ...data, recordedBy: actor.userId });
+  invoice.amountPaid = money(invoice.payments.reduce((sum, p) => sum + p.amount, 0));
+  invoice.balanceDue = money(invoice.grandTotal - invoice.amountPaid);
+  invoice.status = invoice.balanceDue === 0 ? 'Paid' : 'Partially Paid';
+  await invoice.save();
+
+  await logAudit({
+    user: actor.userId,
+    action: 'invoice.payment.record',
+    targetType: 'Invoice',
+    targetId: invoice._id,
+    meta: { amount: data.amount, newStatus: invoice.status, balanceDue: invoice.balanceDue },
+    ip: actor.ip,
+  });
+  return invoice.toObject();
+}
+
+export async function deleteInvoice(id, actor) {
+  const invoice = await Invoice.findById(id).lean();
+  if (!invoice) throw new ApiError(404, 'Invoice not found.');
+  if (invoice.payments.length > 0) {
+    throw new ApiError(400, 'An invoice with recorded payments cannot be deleted.');
+  }
+
+  await Invoice.deleteOne({ _id: id });
+  await logAudit({
+    user: actor.userId,
+    action: 'invoice.delete',
+    targetType: 'Invoice',
+    targetId: invoice._id,
+    meta: { number: invoice.invoiceNumber },
+    ip: actor.ip,
+  });
+}

@@ -73,6 +73,14 @@ const employeeSchema = new mongoose.Schema(
     // that figure is deliberately scoped to the supplied workforce, not
     // internal staff pay (see dashboard.service.js).
     salary: { type: Number, required: requiredForClient, min: 0 },
+    // Optional WPS-style breakdown of `salary` (P2-M5) — null/unset means
+    // "not broken down"; Payroll then treats the whole `salary` as Basic
+    // rather than guessing a split percentage that was never agreed. Set
+    // these only once the real Basic/HRA/Transport split for this employee
+    // is known — never inferred from a standard-looking ratio.
+    basicSalary: { type: Number, default: null, min: 0 },
+    housingAllowance: { type: Number, default: null, min: 0 },
+    transportAllowance: { type: Number, default: null, min: 0 },
     accommodation: { type: String, trim: true },
 
     // The minimum shift length before My Attendance warns this Worker on an

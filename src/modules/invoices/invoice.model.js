@@ -1,0 +1,88 @@
+/**
+ * Invoice — created from an Approved Quotation (P2-M6), closing the revenue
+ * loop: Quotation (offer) → Invoice (billed) → Payments (collected).
+ *
+ * Schema choices, justified:
+ *  - `lineItems` are COPIED from the source Quotation at creation time, not
+ *    referenced — an invoice must keep reading exactly what was billed even
+ *    if the quotation is later edited (a Quotation is editable; a Draft
+ *    Invoice is not — this app has no "Draft invoice" state at all, since
+ *    an invoice only exists once actually issued).
+ *  - `quotation`/`quotationNumber` is a reference + snapshot, same pattern
+ *    as `client`/`clientName` — link while it exists, keep the number
+ *    readable if it doesn't.
+ *  - One invoice per quotation (the unique index): this is a straightforward
+ *    "convert this approved offer into a bill" action, not a partial/
+ *    split-billing workflow — that would be a deliberate, separate feature.
+ *  - `payments` are EMBEDDED (they live and die with their invoice, exactly
+ *    like a quotation's line items) with amountPaid/balanceDue/status always
+ *    RECOMPUTED from the payments array, never trusted from the client —
+ *    same discipline as quotation totals and the salary-advance ledger.
+ */
+import mongoose from 'mongoose';
+
+export const INVOICE_STATUSES = ['Unpaid', 'Partially Paid', 'Paid'];
+export const INVOICE_LINE_TYPES = ['Labour', 'Trading'];
+
+/** Identical shape to Quotation's line item — copied, not imported, so an
+ *  invoice never silently changes if Quotation's schema does. */
+const invoiceLineItemSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: INVOICE_LINE_TYPES, required: true },
+    description: { type: String, required: true, trim: true },
+    quantity: { type: Number, required: true, min: 0 },
+    unitPrice: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0, max: 100 },
+    taxRate: { type: Number, default: 15, min: 0, max: 100 },
+  },
+  { _id: false }
+);
+
+/** One recorded payment. _id disabled — an append-only value object, same
+ *  convention as the salary advance repayment ledger. */
+const paymentSchema = new mongoose.Schema(
+  {
+    amount: { type: Number, required: true, min: 0.01 },
+    date: { type: Date, required: true },
+    method: { type: String, trim: true, maxlength: 50 },
+    reference: { type: String, trim: true, maxlength: 100 },
+    recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  },
+  { _id: false }
+);
+
+const invoiceSchema = new mongoose.Schema(
+  {
+    invoiceNumber: { type: String, required: true, unique: true },
+    quotation: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation', required: true, unique: true },
+    quotationNumber: { type: String, required: true },
+    client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
+    clientName: { type: String, required: true },
+
+    date: { type: Date, default: Date.now },
+    dueDate: { type: Date, default: null },
+
+    lineItems: { type: [invoiceLineItemSchema], required: true },
+    notes: { type: String, trim: true, maxlength: 2000 },
+
+    // Computed from lineItems at creation — an invoice's billed amount is
+    // frozen at issue time, unlike a Quotation which can still be edited.
+    subtotal: { type: Number, default: 0 },
+    discountTotal: { type: Number, default: 0 },
+    taxTotal: { type: Number, default: 0 },
+    grandTotal: { type: Number, default: 0 },
+
+    payments: { type: [paymentSchema], default: [] },
+    // Always recomputed from `payments` — never set directly.
+    amountPaid: { type: Number, default: 0 },
+    balanceDue: { type: Number, default: 0 },
+    status: { type: String, enum: INVOICE_STATUSES, default: 'Unpaid' },
+  },
+  { timestamps: true }
+);
+
+invoiceSchema.index({ client: 1 });
+invoiceSchema.index({ status: 1 });
+invoiceSchema.index({ createdAt: -1 });
+
+export default mongoose.model('Invoice', invoiceSchema);

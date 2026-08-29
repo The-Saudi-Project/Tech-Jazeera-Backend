@@ -15,6 +15,7 @@ import { getDashboard } from './dashboard.service.js';
 export async function overview(req, res) {
   const data = await getDashboard({
     thresholdDays: req.query.thresholdDays,
+    month: req.query.month,
     actor: { role: req.user.role, userId: req.user.id },
   });
   res.json(new ApiResponse('Dashboard.', data));
