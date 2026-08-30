@@ -115,6 +115,97 @@ async function evaluateContractCycle(employee, leaveType, requestedDays, now) {
   };
 }
 
+/**
+ * Split `requestedDays` across `tiers` given `usedDays` already consumed
+ * this leave year — tiers are consumed in array order (Article 117: the
+ * first 30 days of a company's sick days this year are the "full pay"
+ * tier, REGARDLESS of which request they came from, so a worker's 3rd
+ * request this year might start mid-tier or straddle two tiers). Exported
+ * for payroll.service.js, which reuses the exact same math to figure out
+ * which calendar days within a request fall in which tier.
+ */
+export function allocateSickDays(usedDays, requestedDays, tiers) {
+  const totalCap = tiers.reduce((sum, t) => sum + t.days, 0);
+  const remainingDays = Math.max(0, totalCap - usedDays);
+  const eligible = requestedDays <= remainingDays;
+
+  let cursor = 0; // cumulative tier-days walked past so far
+  let toAllocate = requestedDays;
+  const payBreakdown = [];
+  for (const tier of tiers) {
+    const tierStart = cursor;
+    const tierEnd = cursor + tier.days;
+    cursor = tierEnd;
+    if (usedDays >= tierEnd || toAllocate <= 0) continue; // tier fully used already, or nothing left to place
+    const availableInTier = tierEnd - Math.max(usedDays, tierStart);
+    const daysHere = Math.min(toAllocate, availableInTier);
+    if (daysHere > 0) {
+      payBreakdown.push({ days: daysHere, payPercent: tier.payPercent });
+      toAllocate -= daysHere;
+    }
+  }
+  // Beyond every configured tier (a manager approving a request over the
+  // remaining balance anyway — `eligible` is already false here, but the
+  // decision is theirs to make) is unpaid, not silently full-pay-by-
+  // omission: Article 117's whole point is that pay tapers to zero past
+  // the cap, it doesn't reset to 100% once the tiers run out. Merged into
+  // the previous entry if that was already 0% (the request's own last
+  // tier ending at 0%, same as the overflow) rather than showing two
+  // adjacent "at 0% pay" lines.
+  if (toAllocate > 0) {
+    const last = payBreakdown[payBreakdown.length - 1];
+    if (last?.payPercent === 0) last.days += toAllocate;
+    else payBreakdown.push({ days: toAllocate, payPercent: 0 });
+  }
+  return { totalCap, remainingDays, eligible, payBreakdown };
+}
+
+async function evaluateSick(employee, leaveType, requestedDays, now) {
+  const serviceMonths = monthsOfService(employee.joiningDate, now);
+  if (serviceMonths < leaveType.minServiceMonths) {
+    return {
+      eligible: false,
+      autoApprovable: false,
+      continuousServiceMonths: serviceMonths,
+      entitlementDays: 0,
+      usedDays: 0,
+      remainingDays: 0,
+      ruleApplied: `Requires ${leaveType.minServiceMonths} months of continuous service (has ${serviceMonths}).`,
+      payBreakdown: [],
+    };
+  }
+
+  const yearStart = currentLeaveYearStart(employee.joiningDate, now);
+  const [usedAgg] = await LeaveRequest.aggregate([
+    {
+      $match: {
+        employee: employee._id,
+        leaveType: leaveType._id,
+        status: { $in: ['AutoApproved', 'Approved'] },
+        startDate: { $gte: yearStart },
+      },
+    },
+    { $group: { _id: null, total: { $sum: '$days' } } },
+  ]);
+  const usedDays = usedAgg?.total ?? 0;
+
+  const { totalCap, remainingDays, eligible, payBreakdown } = allocateSickDays(usedDays, requestedDays, leaveType.sickPayTiers);
+  const breakdownText = payBreakdown.map((b) => `${b.days} day${b.days > 1 ? 's' : ''} at ${b.payPercent}% pay`).join(', ');
+
+  return {
+    eligible,
+    autoApprovable: true,
+    continuousServiceMonths: serviceMonths,
+    entitlementDays: totalCap,
+    usedDays,
+    remainingDays,
+    ruleApplied: eligible
+      ? `Sick leave: ${breakdownText || 'no days allocated'}. ${usedDays} used of ${totalCap} this leave year (since ${yearStart.toDateString()}).`
+      : `Sick leave: only ${remainingDays} of ${totalCap} day(s) remain this leave year (since ${yearStart.toDateString()}) — requested ${requestedDays}.`,
+    payBreakdown,
+  };
+}
+
 function evaluateManual(employee, leaveType, requestedDays, now) {
   const serviceMonths = monthsOfService(employee.joiningDate, now);
   const meetsMinService = serviceMonths >= leaveType.minServiceMonths;
@@ -146,6 +237,7 @@ export async function evaluateEligibility(employee, leaveType, requestedDays, no
   if (leaveType.recurrence === 'ContractCycle') {
     return evaluateContractCycle(employee, leaveType, requestedDays, now);
   }
+  if (leaveType.recurrence === 'Sick') return evaluateSick(employee, leaveType, requestedDays, now);
   return evaluateManual(employee, leaveType, requestedDays, now);
 }
 
@@ -243,6 +335,8 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
       usedDays: evaluation.usedDays,
       remainingDays: evaluation.remainingDays,
       ruleApplied: evaluation.ruleApplied,
+      // Only 'Sick' requests ever populate this — see evaluateSick().
+      payBreakdown: evaluation.payBreakdown?.length ? evaluation.payBreakdown : undefined,
     },
   });
 

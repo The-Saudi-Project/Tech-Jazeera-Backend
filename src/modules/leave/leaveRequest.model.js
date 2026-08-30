@@ -37,6 +37,18 @@ const leaveRequestSchema = new mongoose.Schema(
       usedDays: { type: Number, default: 0 },
       remainingDays: { type: Number, default: 0 },
       ruleApplied: { type: String, default: '' }, // human-readable, shown in the UI
+      // Only set for 'Sick' requests: how these specific days split
+      // across the LeaveType's pay tiers, e.g. [{days:5,payPercent:100},
+      // {days:5,payPercent:75}]. Frozen here at submission time, same
+      // reasoning as everything else in `eligibility` — payroll
+      // (payroll.service.js's sickLeaveDeductionForMonth) reads THIS
+      // snapshot, never re-derives it from the current LeaveType, so an
+      // already-decided request's pay never silently changes if the
+      // company edits its sick-pay tiers later.
+      payBreakdown: {
+        type: [{ days: Number, payPercent: Number, _id: false }],
+        default: undefined,
+      },
     },
 
     // P2-M2: auto-approval is a right, not a manager's call (per policy), but

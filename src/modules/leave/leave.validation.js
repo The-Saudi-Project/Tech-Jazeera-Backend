@@ -11,6 +11,16 @@ const objectId = (label) => z.string().regex(/^[a-f0-9]{24}$/i, `Invalid ${label
 const optionalDays = z.preprocess(emptyToUndef, z.coerce.number().min(0).max(365).optional());
 const optionalYears = (max) => z.preprocess(emptyToUndef, z.coerce.number().min(1).max(max).optional());
 
+/** One 'Sick' pay tier — see leaveType.model.js's sickPayTierSchema. */
+const sickPayTierSchema = z.object({
+  days: z.coerce.number().int().min(1).max(365),
+  payPercent: z.coerce.number().min(0).max(100),
+});
+const optionalSickPayTiers = z.preprocess(
+  (v) => (Array.isArray(v) && v.length === 0 ? undefined : v),
+  z.array(sickPayTierSchema).max(10).optional()
+);
+
 export const createLeaveTypeSchema = z
   .object({
     name: z.string().trim().min(2, 'Name is required.').max(60),
@@ -20,6 +30,7 @@ export const createLeaveTypeSchema = z
     tierDaysPerYear: optionalDays,
     cycleYears: optionalYears(20),
     daysPerCycle: optionalDays,
+    sickPayTiers: optionalSickPayTiers,
     minServiceMonths: z.coerce.number().min(0).max(600).default(0),
     maxDaysPerRequest: z.preprocess(emptyToUndef, z.coerce.number().min(1).max(365).optional()),
     isPaid: z.boolean().default(true),
@@ -40,6 +51,13 @@ export const createLeaveTypeSchema = z
         message: 'Cycle length and days per cycle are required for a Contract-cycle leave type.',
       });
     }
+    if (data.recurrence === 'Sick' && (!data.sickPayTiers || data.sickPayTiers.length === 0)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sickPayTiers'],
+        message: 'At least one pay tier is required for a Sick leave type.',
+      });
+    }
     if ((data.tierYears !== undefined) !== (data.tierDaysPerYear !== undefined)) {
       ctx.addIssue({
         code: 'custom',
@@ -58,6 +76,7 @@ export const updateLeaveTypeSchema = z.object({
   tierDaysPerYear: optionalDays,
   cycleYears: optionalYears(20),
   daysPerCycle: optionalDays,
+  sickPayTiers: optionalSickPayTiers,
   minServiceMonths: z.coerce.number().min(0).max(600).optional(),
   maxDaysPerRequest: z.preprocess(emptyToUndef, z.coerce.number().min(1).max(365).optional()),
   isPaid: z.boolean().optional(),

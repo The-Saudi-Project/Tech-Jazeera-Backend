@@ -63,6 +63,7 @@ export function buildPayslipPdf({ run, line }) {
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#666').text('DEDUCTIONS', left, y);
     y += 16;
     row('GOSI', money(line.gosiDeduction));
+    if (line.sickLeaveDeduction) row(line.sickLeaveNote || 'Sick leave', money(line.sickLeaveDeduction));
     for (const d of line.otherDeductions) row(d.label, money(d.amount));
     row('Total deductions', money(line.totalDeductions), { bold: true });
 

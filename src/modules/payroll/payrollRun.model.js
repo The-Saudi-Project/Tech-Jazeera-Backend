@@ -27,6 +27,13 @@
  *    week or a configured Ramadan cap — see timesheets/timesheet.service.js);
  *    overtimePay = overtimeHours × hourly wage × 1.5 (Labor Law Article 107),
  *    and IS folded into grossPay — see payroll.service.js's buildLineTotals.
+ *  - `sickLeaveDeduction` is the other real, auto-computed cost figure: for
+ *    any Approved 'Sick'-type LeaveRequest overlapping this month, days
+ *    paid at less than 100% (per the LeaveType's configurable tiers —
+ *    Labor Law Article 117's 30-days-full/60-at-75%/rest-unpaid by
+ *    default) are docked at that day's own basic-salary daily rate — see
+ *    payroll.service.js's sickLeaveDeductionForMonth(). Folded into
+ *    totalDeductions, not grossPay — it reduces pay, unlike overtime.
  */
 import mongoose from 'mongoose';
 
@@ -56,6 +63,11 @@ const payrollLineSchema = new mongoose.Schema({
 
   approvedHours: { type: Number, default: 0, min: 0 },
   overtimeHours: { type: Number, default: 0, min: 0 },
+
+  sickLeaveDeduction: { type: Number, default: 0, min: 0 },
+  // Human-readable, e.g. "Sick leave: 2 day(s) reduced-pay, 1 day(s)
+  // unpaid" — empty string when there's nothing to dock.
+  sickLeaveNote: { type: String, default: '' },
 
   gosiDeduction: { type: Number, default: 0, min: 0 },
   otherDeductions: { type: [deductionSchema], default: [] },

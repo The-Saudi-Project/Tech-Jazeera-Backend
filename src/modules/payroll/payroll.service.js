@@ -4,18 +4,79 @@
  */
 import Employee from '../employees/employee.model.js';
 import Timesheet from '../timesheets/timesheet.model.js';
+import LeaveRequest from '../leave/leaveRequest.model.js';
 import PayrollRun from './payrollRun.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-// Saudi Labor Law's standard convention for turning a monthly wage into an
-// hourly one: a 30-day month × an 8-hour normal day (same DAILY_WAGE_DIVISOR
-// convention as the EOSB calculator, one level further down to hours).
+// Saudi Labor Law's standard convention for turning a monthly wage into a
+// daily one — a 30-day month (same convention the EOSB calculator already
+// uses for leave encashment) — and, one level further, an hourly one (a
+// 30-day month × an 8-hour normal day).
+const DAILY_WAGE_DIVISOR = 30;
 const HOURLY_WAGE_DIVISOR = 240;
 // Labor Law Article 107: overtime is paid at the normal hourly wage + 50%.
 const OVERTIME_RATE = 1.5;
+
+/**
+ * Walk a Sick LeaveRequest's frozen `payBreakdown` (tier segments, in
+ * order) back into actual calendar dates starting at the request's real
+ * `startDate` — the ONLY way to know which specific days a tier's "5 days
+ * at 75%" refers to, since the breakdown itself only records counts.
+ */
+function expandSickPayBreakdown(startDate, payBreakdown) {
+  const dates = [];
+  let cursor = new Date(startDate);
+  for (const tier of payBreakdown) {
+    for (let i = 0; i < tier.days; i++) {
+      dates.push({ date: new Date(cursor), payPercent: tier.payPercent });
+      cursor = new Date(cursor.getTime() + 86_400_000);
+    }
+  }
+  return dates;
+}
+
+/**
+ * How much of this employee's pay to dock this month for Sick leave whose
+ * tiers say less than 100% — reads each request's FROZEN payBreakdown
+ * (never recomputed from the current LeaveType, so an already-decided
+ * request's pay can't silently change if the company edits its sick-pay
+ * tiers later — same discipline as everywhere else `eligibility` is used).
+ * A request spanning a month boundary only has its days IN this month
+ * counted; the rest belongs to whichever month those calendar days fall in.
+ */
+async function sickLeaveDeductionForMonth(employeeId, basicSalary, monthStart, monthEnd) {
+  const requests = await LeaveRequest.find({
+    employee: employeeId,
+    status: { $in: ['AutoApproved', 'Approved'] },
+    'eligibility.payBreakdown': { $exists: true, $ne: [] },
+    startDate: { $lte: monthEnd },
+    endDate: { $gte: monthStart },
+  })
+    .select('startDate eligibility.payBreakdown')
+    .lean();
+
+  const dailyWage = basicSalary / DAILY_WAGE_DIVISOR;
+  let deduction = 0;
+  let reducedPayDays = 0;
+  let unpaidDays = 0;
+
+  for (const request of requests) {
+    for (const { date, payPercent } of expandSickPayBreakdown(request.startDate, request.eligibility.payBreakdown)) {
+      if (date < monthStart || date > monthEnd || payPercent >= 100) continue; // outside this month, or fully paid
+      deduction += dailyWage * ((100 - payPercent) / 100);
+      if (payPercent === 0) unpaidDays += 1;
+      else reducedPayDays += 1;
+    }
+  }
+
+  const parts = [];
+  if (reducedPayDays > 0) parts.push(`${reducedPayDays} day(s) reduced-pay`);
+  if (unpaidDays > 0) parts.push(`${unpaidDays} day(s) unpaid`);
+  return { deduction: money(deduction), note: parts.length ? `Sick leave: ${parts.join(', ')}` : '' };
+}
 
 /** Sum of Approved-timesheet hours (and overtime hours, P3-E) for one
  *  employee, counting a week toward the calendar month its Saturday
@@ -33,9 +94,9 @@ async function approvedHoursForMonth(employeeId, monthStart, monthEnd) {
   };
 }
 
-function buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, overtimePay, gosiDeduction, otherDeductions }) {
+function buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, overtimePay, sickLeaveDeduction, gosiDeduction, otherDeductions }) {
   const grossPay = money(basicSalary + housingAllowance + transportAllowance + otherAllowances + overtimePay);
-  const totalDeductions = money(gosiDeduction + otherDeductions.reduce((sum, d) => sum + d.amount, 0));
+  const totalDeductions = money(sickLeaveDeduction + gosiDeduction + otherDeductions.reduce((sum, d) => sum + d.amount, 0));
   const netPay = money(grossPay - totalDeductions);
   return { grossPay, totalDeductions, netPay };
 }
@@ -84,8 +145,23 @@ export async function createPayrollRun({ periodYear, periodMonth }, actor) {
     // company-wide rate — the hourly wage a 50%-uplift is computed against
     // is theirs alone (Article 107).
     const overtimePay = money(overtimeHours * (basicSalary / HOURLY_WAGE_DIVISOR) * OVERTIME_RATE);
+    const { deduction: sickLeaveDeduction, note: sickLeaveNote } = await sickLeaveDeductionForMonth(
+      employee._id,
+      basicSalary,
+      monthStart,
+      monthEnd
+    );
 
-    const totals = buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, overtimePay, gosiDeduction, otherDeductions });
+    const totals = buildLineTotals({
+      basicSalary,
+      housingAllowance,
+      transportAllowance,
+      otherAllowances,
+      overtimePay,
+      sickLeaveDeduction,
+      gosiDeduction,
+      otherDeductions,
+    });
 
     lines.push({
       employee: employee._id,
@@ -98,6 +174,8 @@ export async function createPayrollRun({ periodYear, periodMonth }, actor) {
       overtimePay,
       approvedHours,
       overtimeHours,
+      sickLeaveDeduction,
+      sickLeaveNote,
       gosiDeduction,
       otherDeductions,
       ...totals,
@@ -159,6 +237,7 @@ export async function updatePayrollLine(runId, lineId, data, actor) {
       transportAllowance: line.transportAllowance,
       otherAllowances: line.otherAllowances,
       overtimePay: line.overtimePay, // auto-computed at creation, not editable here
+      sickLeaveDeduction: line.sickLeaveDeduction, // auto-computed at creation, not editable here
       gosiDeduction: line.gosiDeduction,
       otherDeductions: line.otherDeductions,
     })
