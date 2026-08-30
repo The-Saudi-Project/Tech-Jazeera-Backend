@@ -6,6 +6,7 @@ import Employee from '../employees/employee.model.js';
 import User from '../auth/user.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyUser } from '../notifications/notification.service.js';
 
 /** Escape user text before embedding it in a $regex (injection / syntax). */
 function escapeRegex(text) {
@@ -173,6 +174,15 @@ export async function decideClient(id, { status, decisionNote }, actor) {
     targetId: client._id,
     meta: { companyName: client.companyName, decisionNote },
     ip: actor.ip,
+  });
+  // The submitter (`createdBy`) is already a User id — a Coordinator's own
+  // login, not an Employee to resolve through, unlike every other
+  // notifyEmployeeUser() call in this module.
+  await notifyUser(client.createdBy, {
+    type: 'RequestStatus',
+    title: `${client.companyName} — client submission ${status.toLowerCase()}`,
+    body: decisionNote || undefined,
+    url: `/clients/${client._id}`,
   });
   return client.toObject();
 }

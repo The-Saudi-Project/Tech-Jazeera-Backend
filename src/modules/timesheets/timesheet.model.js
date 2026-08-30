@@ -35,6 +35,12 @@ const timesheetSchema = new mongoose.Schema(
     daysAbsent: { type: Number, default: 0 },
     daysLeaveOrSick: { type: Number, default: 0 },
     daysOff: { type: Number, default: 0 },
+    // P3-E: hours beyond the week's threshold (48 normally, or the
+    // configured Ramadan weeklyHours cap if this week overlaps one) —
+    // also snapshotted at submission time, same reasoning as totalHours:
+    // if HR corrects the Ramadan calendar later, an already-decided week's
+    // overtime doesn't silently change underneath it.
+    overtimeHours: { type: Number, default: 0 },
     // How many of the 7 days actually had an Attendance record — lets a
     // reviewer see incomplete data at a glance (recordedDays < 7).
     recordedDays: { type: Number, default: 0 },

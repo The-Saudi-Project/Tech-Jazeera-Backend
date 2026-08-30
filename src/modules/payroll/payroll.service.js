@@ -10,20 +10,31 @@ import { logAudit } from '../audit/audit.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-/** Sum of Approved-timesheet hours for one employee, counting a week toward
- *  the calendar month its Saturday (periodStart) falls in — a documented
- *  approximation, not a day-by-day split of weeks that cross month ends. */
+// Saudi Labor Law's standard convention for turning a monthly wage into an
+// hourly one: a 30-day month × an 8-hour normal day (same DAILY_WAGE_DIVISOR
+// convention as the EOSB calculator, one level further down to hours).
+const HOURLY_WAGE_DIVISOR = 240;
+// Labor Law Article 107: overtime is paid at the normal hourly wage + 50%.
+const OVERTIME_RATE = 1.5;
+
+/** Sum of Approved-timesheet hours (and overtime hours, P3-E) for one
+ *  employee, counting a week toward the calendar month its Saturday
+ *  (periodStart) falls in — a documented approximation, not a day-by-day
+ *  split of weeks that cross month ends. */
 async function approvedHoursForMonth(employeeId, monthStart, monthEnd) {
   const timesheets = await Timesheet.find({
     employee: employeeId,
     status: 'Approved',
     periodStart: { $gte: monthStart, $lte: monthEnd },
   }).lean();
-  return money(timesheets.reduce((sum, t) => sum + t.totalHours, 0));
+  return {
+    approvedHours: money(timesheets.reduce((sum, t) => sum + t.totalHours, 0)),
+    overtimeHours: money(timesheets.reduce((sum, t) => sum + (t.overtimeHours ?? 0), 0)),
+  };
 }
 
-function buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, gosiDeduction, otherDeductions }) {
-  const grossPay = money(basicSalary + housingAllowance + transportAllowance + otherAllowances);
+function buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, overtimePay, gosiDeduction, otherDeductions }) {
+  const grossPay = money(basicSalary + housingAllowance + transportAllowance + otherAllowances + overtimePay);
   const totalDeductions = money(gosiDeduction + otherDeductions.reduce((sum, d) => sum + d.amount, 0));
   const netPay = money(grossPay - totalDeductions);
   return { grossPay, totalDeductions, netPay };
@@ -67,7 +78,14 @@ export async function createPayrollRun({ periodYear, periodMonth }, actor) {
     const otherAllowances = 0;
     const gosiDeduction = 0;
     const otherDeductions = [];
-    const totals = buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, gosiDeduction, otherDeductions });
+
+    const { approvedHours, overtimeHours } = await approvedHoursForMonth(employee._id, monthStart, monthEnd);
+    // Overtime pay is based on THIS employee's own basic salary, not a
+    // company-wide rate — the hourly wage a 50%-uplift is computed against
+    // is theirs alone (Article 107).
+    const overtimePay = money(overtimeHours * (basicSalary / HOURLY_WAGE_DIVISOR) * OVERTIME_RATE);
+
+    const totals = buildLineTotals({ basicSalary, housingAllowance, transportAllowance, otherAllowances, overtimePay, gosiDeduction, otherDeductions });
 
     lines.push({
       employee: employee._id,
@@ -77,7 +95,9 @@ export async function createPayrollRun({ periodYear, periodMonth }, actor) {
       housingAllowance: money(housingAllowance),
       transportAllowance: money(transportAllowance),
       otherAllowances,
-      approvedHours: await approvedHoursForMonth(employee._id, monthStart, monthEnd),
+      overtimePay,
+      approvedHours,
+      overtimeHours,
       gosiDeduction,
       otherDeductions,
       ...totals,
@@ -138,6 +158,7 @@ export async function updatePayrollLine(runId, lineId, data, actor) {
       housingAllowance: line.housingAllowance,
       transportAllowance: line.transportAllowance,
       otherAllowances: line.otherAllowances,
+      overtimePay: line.overtimePay, // auto-computed at creation, not editable here
       gosiDeduction: line.gosiDeduction,
       otherDeductions: line.otherDeductions,
     })

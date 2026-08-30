@@ -37,7 +37,8 @@ export function buildPayslipPdf({ run, line }) {
     doc.fontSize(9).font('Helvetica').fillColor('#666').text('EMPLOYEE', left, 150);
     doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(`${line.employeeName}  (${line.employeeCode})`, left, 163);
     if (line.approvedHours > 0) {
-      doc.fontSize(9).font('Helvetica').fillColor('#666').text(`Approved hours this period: ${line.approvedHours}`, left, 183);
+      const overtimeNote = line.overtimeHours > 0 ? ` (incl. ${line.overtimeHours} overtime)` : '';
+      doc.fontSize(9).font('Helvetica').fillColor('#666').text(`Approved hours this period: ${line.approvedHours}${overtimeNote}`, left, 183);
     }
 
     let y = 210;
@@ -55,6 +56,7 @@ export function buildPayslipPdf({ run, line }) {
     row('Housing allowance', money(line.housingAllowance));
     row('Transport allowance', money(line.transportAllowance));
     if (line.otherAllowances) row('Other allowances', money(line.otherAllowances));
+    if (line.overtimePay) row(`Overtime (${line.overtimeHours}h @ 1.5×)`, money(line.overtimePay));
     row('Gross pay', money(line.grossPay), { bold: true });
 
     y += 10;

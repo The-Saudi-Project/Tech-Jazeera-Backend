@@ -107,8 +107,10 @@ async function getProfitOverview(monthStr) {
   return { ...trend[trend.length - 1], trend };
 }
 
-/** Employee identity documents whose expiry we surface on the dashboard. */
-const IDENTITY_DOCS = [
+/** Employee identity documents whose expiry we surface on the dashboard —
+ *  exported so the P3-F expiry-alert job (notifications/expiryAlert.job.js)
+ *  checks exactly the same set, not a second hand-maintained list. */
+export const IDENTITY_DOCS = [
   ['passport', 'Passport'],
   ['visa', 'Visa'],
   ['iqama', 'Iqama'],

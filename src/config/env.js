@@ -91,6 +91,12 @@ const env = Object.freeze({
   cloudinaryCloudName: required('CLOUDINARY_CLOUD_NAME'),
   cloudinaryApiKey: required('CLOUDINARY_API_KEY'),
   cloudinaryApiSecret: required('CLOUDINARY_API_SECRET'),
+  // Web Push (P3-F) — optional, unlike the required config above: an
+  // existing deployment without these configured yet shouldn't fail to
+  // boot over a feature that degrades gracefully (see config/webPush.js).
+  vapidPublicKey: optional('VAPID_PUBLIC_KEY', null),
+  vapidPrivateKey: optional('VAPID_PRIVATE_KEY', null),
+  vapidSubject: optional('VAPID_SUBJECT', null),
   isProduction: process.env.NODE_ENV === 'production',
 });
 

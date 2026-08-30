@@ -15,6 +15,7 @@ import LeaveType from './leaveType.model.js';
 import LeaveRequest from './leaveRequest.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -321,6 +322,12 @@ export async function decideLeaveRequest(id, { status, decisionNote }, actor) {
     targetId: request._id,
     meta: { decisionNote },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(request.employee, {
+    type: 'RequestStatus',
+    title: `${request.leaveTypeName} request ${status}`,
+    body: decisionNote || undefined,
+    url: '/me/leave',
   });
   return request.toObject();
 }

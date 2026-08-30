@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed:admin": "node src/scripts/seed-admin.js",
-    "migrate:unify-employees": "node src/scripts/migrate-unify-employees.js"
+    "migrate:unify-employees": "node src/scripts/migrate-unify-employees.js",
+    "generate:vapid": "node src/scripts/generate-vapid-keys.js"
   },
   "engines": {
     "node": ">=20.6.0"
@@ -31,6 +32,7 @@
     "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
     "sharp": "^0.35.3",
+    "web-push": "^3.6.7",
     "winston": "^3.17.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"

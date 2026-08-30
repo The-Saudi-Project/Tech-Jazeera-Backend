@@ -7,6 +7,7 @@ import LeaveRequest from '../leave/leaveRequest.model.js';
 import ExitReentryRequest from './exitReentry.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 
 async function assertOwnsLeaveRequest(employeeId, leaveRequestId) {
   if (!leaveRequestId) return;
@@ -96,6 +97,12 @@ export async function decideExitReentry(id, { status, decisionNote }, actor) {
     targetId: request._id,
     meta: { decisionNote },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(request.employee, {
+    type: 'RequestStatus',
+    title: `Exit re-entry visa request ${status.toLowerCase()}`,
+    body: decisionNote || undefined,
+    url: '/me/exit-documents',
   });
   return request.toObject();
 }

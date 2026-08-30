@@ -9,6 +9,7 @@ import CertificateRequest from './certificate.model.js';
 import { CERTIFICATE_TYPES_WITH_PDF } from './certificate.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 
 export async function submitCertificate(employeeId, data, actor) {
   const employee = await Employee.findById(employeeId).lean();
@@ -87,6 +88,12 @@ export async function decideCertificate(id, { status, decisionNote }, actor) {
     targetId: request._id,
     meta: { decisionNote },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(request.employee, {
+    type: 'RequestStatus',
+    title: `${request.type} certificate request ${status.toLowerCase()}`,
+    body: decisionNote || undefined,
+    url: '/me/exit-documents',
   });
   return request.toObject();
 }

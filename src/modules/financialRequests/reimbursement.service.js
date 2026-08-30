@@ -7,6 +7,7 @@ import ReimbursementClaim from './reimbursement.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { signedDownloadUrl, destroyDocumentFile } from '../../middleware/upload.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 
 function receiptFromFile(file) {
   return {
@@ -127,6 +128,12 @@ export async function decideReimbursement(id, { status, decisionNote }, actor) {
     meta: { decisionNote },
     ip: actor.ip,
   });
+  await notifyEmployeeUser(claim.employee, {
+    type: 'RequestStatus',
+    title: `Reimbursement claim ${status.toLowerCase()}`,
+    body: decisionNote || undefined,
+    url: '/me/requests',
+  });
   return claim.toObject();
 }
 
@@ -147,6 +154,12 @@ export async function markReimbursementPaid(id, actor) {
     targetId: claim._id,
     meta: { amount: claim.amount },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(claim.employee, {
+    type: 'RequestStatus',
+    title: 'Reimbursement claim paid',
+    body: `SAR ${claim.amount} for ${claim.category.toLowerCase()}.`,
+    url: '/me/requests',
   });
   return claim.toObject();
 }

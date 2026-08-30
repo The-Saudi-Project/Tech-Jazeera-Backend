@@ -19,10 +19,14 @@
  *    a legally exact figure" rule as the EOSB exit-reason scoping and the
  *    unconfirmed statutory leave day-caps. Defaults to 0, not a guessed %.
  *  - `approvedHours` is INFORMATIONAL — summed from Approved Timesheets
- *    (P2-M3b) overlapping this month. It does not feed netPay: overtime-rate
- *    calculation is P3-E's job, not yet built. Showing it here is the "make
- *    hours available to payroll" half of the plan; multiplying it into pay
- *    is the next connection point once P3-E exists.
+ *    (P2-M3b) overlapping this month. It does NOT include overtime hours
+ *    and does not by itself feed netPay.
+ *  - `overtimeHours`/`overtimePay` (P3-E) are the real cost figure:
+ *    overtimeHours is summed from the SAME Approved timesheets'
+ *    `overtimeHours` (already computed per-week against the 48-hour normal
+ *    week or a configured Ramadan cap — see timesheets/timesheet.service.js);
+ *    overtimePay = overtimeHours × hourly wage × 1.5 (Labor Law Article 107),
+ *    and IS folded into grossPay — see payroll.service.js's buildLineTotals.
  */
 import mongoose from 'mongoose';
 
@@ -47,9 +51,11 @@ const payrollLineSchema = new mongoose.Schema({
   housingAllowance: { type: Number, default: 0, min: 0 },
   transportAllowance: { type: Number, default: 0, min: 0 },
   otherAllowances: { type: Number, default: 0, min: 0 },
+  overtimePay: { type: Number, default: 0, min: 0 },
   grossPay: { type: Number, required: true, min: 0 },
 
   approvedHours: { type: Number, default: 0, min: 0 },
+  overtimeHours: { type: Number, default: 0, min: 0 },
 
   gosiDeduction: { type: Number, default: 0, min: 0 },
   otherDeductions: { type: [deductionSchema], default: [] },

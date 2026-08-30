@@ -12,10 +12,18 @@
 import AttendanceModel from '../attendance/attendance.model.js';
 import Employee from '../employees/employee.model.js';
 import Timesheet from './timesheet.model.js';
+import { resolveWeeklyCap } from '../ramadan/ramadanPeriod.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// Labor Law Article 98: 8 hours/day, 48 hours/week — the fixed statutory
+// normal week used whenever a timesheet's week doesn't overlap a configured
+// Ramadan period (see ../ramadan/ramadanPeriod.model.js for why the
+// Ramadan cap itself IS configurable but this baseline isn't).
+const NORMAL_WEEKLY_HOURS = 48;
 
 /** The Saturday..Friday (KSA week) bounds containing `date` — mirrors the
  *  client's attendance.dates.js weekRange() exactly, in UTC Date form. */
@@ -35,6 +43,9 @@ function weekBoundsFor(date) {
  *     expectedDailyHours, if one is set on file — never an invented default.
  *   - Absent/Off contribute 0 hours; Leave/Sick are tracked separately, not
  *     summed as worked hours.
+ *   - overtimeHours (P3-E): whatever totalHours exceeds this week's
+ *     threshold — NORMAL_WEEKLY_HOURS (48), or the configured Ramadan
+ *     weeklyHours cap if [periodStart, periodEnd] overlaps a RamadanPeriod.
  */
 async function computeTotals(employee, periodStart, periodEnd) {
   const records = await AttendanceModel.find({
@@ -61,6 +72,10 @@ async function computeTotals(employee, periodStart, periodEnd) {
     }
   }
 
+  const ramadanWeeklyCap = await resolveWeeklyCap(periodStart, periodEnd);
+  const weeklyThreshold = ramadanWeeklyCap ?? NORMAL_WEEKLY_HOURS;
+  const overtimeHours = money(Math.max(0, totalHours - weeklyThreshold));
+
   return {
     totalHours: money(totalHours),
     daysPresent,
@@ -68,6 +83,7 @@ async function computeTotals(employee, periodStart, periodEnd) {
     daysLeaveOrSick,
     daysOff,
     recordedDays: records.length,
+    overtimeHours,
   };
 }
 
@@ -160,6 +176,12 @@ export async function decideTimesheet(id, { status, decisionNote }, actor) {
     targetId: timesheet._id,
     meta: { decisionNote },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(timesheet.employee, {
+    type: 'RequestStatus',
+    title: `Timesheet ${status.toLowerCase()}`,
+    body: `Week of ${timesheet.periodStart.toISOString().slice(0, 10)}${decisionNote ? ` — ${decisionNote}` : ''}`,
+    url: '/me/attendance',
   });
   return timesheet.toObject();
 }

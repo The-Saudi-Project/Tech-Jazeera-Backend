@@ -6,6 +6,7 @@ import Employee from '../employees/employee.model.js';
 import SalaryAdvance from './advance.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { notifyEmployeeUser } from '../notifications/notification.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -104,6 +105,12 @@ export async function decideAdvance(id, { status, decisionNote }, actor) {
     targetId: advance._id,
     meta: { decisionNote },
     ip: actor.ip,
+  });
+  await notifyEmployeeUser(advance.employee, {
+    type: 'RequestStatus',
+    title: `Salary advance ${status.toLowerCase()}`,
+    body: decisionNote || undefined,
+    url: '/me/requests',
   });
   return withBalance(advance.toObject());
 }
