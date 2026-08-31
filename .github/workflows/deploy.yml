@@ -20,11 +20,9 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          source: "."
+          source: "src,package.json,package-lock.json"
           target: "/home/ubuntu/Tech-Jazeera-Backend"
           rm: false
-          tar_tmp_path: "/tmp"
-          exclude: "node_modules/,.git/,.env"
 
       - name: Install dependencies and restart PM2
         uses: appleboy/ssh-action@v1.0.3
