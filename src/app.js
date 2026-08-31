@@ -62,7 +62,8 @@ if (env.isProduction) app.set('trust proxy', 1);
 app.use(helmet());
 app.use(
   cors({
-    origin: env.clientUrl, // exact origin, not '*' — required for cookies
+    origin: env.clientUrls, // array of exact origins, not '*' — required for cookies;
+                            // `cors` reflects back only the matched origin
     credentials: true, // allow the httpOnly refresh-token cookie (M2)
   })
 );

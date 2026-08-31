@@ -17,10 +17,14 @@
  * cross-origin alike) and it cannot be spoofed by page JavaScript. If it is
  * present and is not our frontend, the request did not come from our app.
  *
- * A MISSING Origin is allowed on purpose: that means a non-browser client
- * (curl, a mobile app, a server-to-server call), which has no ambient cookie
- * jar and therefore cannot be the victim of CSRF. Rejecting those would break
+ * A MISSING Origin is allowed on purpose: that means a genuinely non-browser
+ * client (curl, a server-to-server call), which has no ambient cookie jar and
+ * therefore cannot be the victim of CSRF. Rejecting those would break
  * legitimate API use to defend against an attack that cannot happen there.
+ * Note a Capacitor native app is NOT this case — its WebView has a real
+ * cookie jar and sends a real Origin header (`https://localhost` by
+ * default), so it correctly goes through the trusted-origin check below,
+ * not this bypass. That's why `CLIENT_URL` accepts a comma-separated list.
  *
  * Note the rest of the API needs no such guard: every other route requires an
  * `Authorization: Bearer` header, which an attacker's site cannot set on a
@@ -37,7 +41,8 @@ export function requireTrustedOrigin(req, res, next) {
   const origin = req.get('origin');
   if (!origin) return next(); // non-browser client — no ambient cookies to abuse
 
-  if (normalize(origin) !== normalize(env.clientUrl)) {
+  const trusted = env.clientUrls.map(normalize);
+  if (!trusted.includes(normalize(origin))) {
     logger.warn(
       `[csrf] blocked ${req.method} ${req.originalUrl} from untrusted origin "${origin}"`
     );

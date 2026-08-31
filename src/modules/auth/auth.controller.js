@@ -33,12 +33,24 @@ const REFRESH_COOKIE = 'refreshToken';
  * 'none' means the browser will attach this cookie to requests from ANY site,
  * so the CSRF protection 'lax' was providing is replaced explicitly by
  * requireTrustedOrigin on these routes (see middleware/originGuard.js).
+ *
+ * maxAge matches the refresh token's own real expiry — WITHOUT it this is a
+ * session cookie, which a normal desktop browser keeps for a long time in
+ * practice (a "session" only ends when every window closes) but a Capacitor
+ * native app's WebView does not: the app's process IS the session, so a
+ * force-stop or an OS background-kill ends it for real and the cookie store
+ * discards the cookie, silently breaking "stay logged in" — found by actually
+ * testing that exact scenario, not assumed. Setting maxAge doesn't change
+ * what the server considers valid (rotation + reuse detection in
+ * auth.service.js are the real authority); it just stops the browser/WebView
+ * from throwing the cookie away sooner than the server would still honor it.
  */
 const cookieOptions = {
   httpOnly: true,
   secure: env.isProduction,
   sameSite: env.isProduction ? 'none' : 'lax',
   path: '/api/auth',
+  maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
 };
 
 /**

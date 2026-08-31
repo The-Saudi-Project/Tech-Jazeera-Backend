@@ -32,6 +32,16 @@ function optional(name, fallback) {
   return value && value.trim() !== '' ? value.trim() : fallback;
 }
 
+/** Require a comma-separated list of values, trimmed and trailing-slash-stripped. */
+function requiredList(name) {
+  const value = required(name);
+  if (value === undefined) return undefined;
+  return value
+    .split(',')
+    .map((v) => v.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
 /** Require a variable to be one of an allowed set of values. */
 function requiredEnum(name, allowed) {
   const value = required(name);
@@ -80,7 +90,7 @@ const env = Object.freeze({
   nodeEnv: requiredEnum('NODE_ENV', ['development', 'production']),
   port: requiredPort('PORT'),
   mongodbUri: required('MONGODB_URI'),
-  clientUrl: required('CLIENT_URL'),
+  clientUrls: requiredList('CLIENT_URL'),
   jwtAccessSecret: requiredSecret('JWT_ACCESS_SECRET'),
   jwtRefreshSecret: requiredSecret('JWT_REFRESH_SECRET'),
   uploadDir: requiredDir('UPLOAD_DIR'),
