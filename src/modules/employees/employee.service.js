@@ -7,6 +7,7 @@ import User, { MANAGER_ELIGIBLE_ROLES } from '../auth/user.model.js';
 import RefreshToken from '../auth/refreshToken.model.js';
 import Attendance from '../attendance/attendance.model.js';
 import ApprovalWorkflow from '../approvals/approvalWorkflow.model.js';
+import Subcontractor from '../subcontractors/subcontractor.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -118,6 +119,7 @@ export async function getEmployee(id, actor) {
     .populate('coordinator', 'name email')
     .populate('manager', 'name email')
     .populate('approvalWorkflow', 'name isActive')
+    .populate('subcontractor', 'name')
     .populate('createdBy', 'name role')
     .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
@@ -161,6 +163,15 @@ async function assertValidApprovalWorkflow(workflowId) {
   const workflow = await ApprovalWorkflow.findById(workflowId).lean();
   if (!workflow || !workflow.isActive) {
     throw new ApiError(400, 'Selected approval workflow is not valid or is inactive.');
+  }
+}
+
+/** A 'Subcontracted' employee's supplier, if given, must be a real Subcontractor. */
+async function assertValidSubcontractor(subcontractorId) {
+  if (!subcontractorId) return;
+  const subcontractor = await Subcontractor.findById(subcontractorId).lean();
+  if (!subcontractor) {
+    throw new ApiError(400, 'Selected subcontractor is not valid.');
   }
 }
 
@@ -253,17 +264,19 @@ export async function resetEmployeeLoginPassword(employeeId, actor) {
 export async function createEmployee(data, actor) {
   const payload = { ...data, createdBy: actor.userId };
   // A Coordinator adding their own worker doesn't pick a coordinator — it's
-  // always themselves — and it's always a 'Client'-type employee (their
-  // deployable team, never internal staff). Overriding here (not just
-  // defaulting) means a hand-crafted request can't smuggle a different
-  // coordinator or type through.
+  // always themselves. Their choice of 'Client' vs 'Subcontracted' is left
+  // alone (both are "their deployable team"); only 'Own' is overridden,
+  // since a Coordinator can never create an internal-staff record. This is
+  // an override (not just a default) so a hand-crafted request can't
+  // smuggle a different coordinator or an 'Own' type through.
   if (actor.role === 'Coordinator') {
     payload.coordinator = actor.userId;
-    payload.type = 'Client';
+    if (payload.type === 'Own') payload.type = 'Client';
   }
   await assertValidCoordinator(payload.coordinator);
   await assertValidManager(payload.manager);
   await assertValidApprovalWorkflow(payload.approvalWorkflow);
+  await assertValidSubcontractor(payload.subcontractor);
   const employee = await Employee.create(payload);
   await logAudit({
     user: actor.userId,
@@ -280,6 +293,7 @@ export async function updateEmployee(id, data, actor) {
   if ('coordinator' in data) await assertValidCoordinator(data.coordinator);
   if ('manager' in data) await assertValidManager(data.manager);
   if ('approvalWorkflow' in data) await assertValidApprovalWorkflow(data.approvalWorkflow);
+  if ('subcontractor' in data) await assertValidSubcontractor(data.subcontractor);
   const employee = await Employee.findByIdAndUpdate(id, data, {
     new: true, // return the updated document, not the stale one
     runValidators: true, // Mongoose skips schema validation on updates unless told

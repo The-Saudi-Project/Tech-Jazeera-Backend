@@ -14,7 +14,7 @@
  * actual expenses, for a real calendar month — is finally honest to show;
  * see computeMonthProfit()/getProfitOverview() below and finance.profit.
  */
-import Employee from '../employees/employee.model.js';
+import Employee, { WORKFORCE_TYPES } from '../employees/employee.model.js';
 import Client from '../clients/client.model.js';
 import Deployment from '../deployments/deployment.model.js';
 import Quotation from '../quotations/quotation.model.js';
@@ -150,7 +150,7 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
   // shares the same scope.
   const isCoordinator = actor?.role === 'Coordinator';
   const teamIds = isCoordinator
-    ? await Employee.find({ coordinator: actor.userId, type: 'Client' }).distinct('_id')
+    ? await Employee.find({ coordinator: actor.userId, type: { $in: WORKFORCE_TYPES } }).distinct('_id')
     : null;
 
   const employeeExpiryFilter = { status: { $ne: 'Exited' }, $or: identityExpiryOr };
@@ -162,10 +162,11 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
   const deploymentFilter = { status: 'Active' };
   if (teamIds) deploymentFilter.worker = { $in: teamIds };
 
-  // "Active Workers"/"Workforce by status" mean the supplied workforce, same
-  // as before Own-type employees existed — type: 'Client' keeps it that way
-  // now that the Employee collection holds both populations.
-  const employeeStatusFilter = { type: 'Client', ...(teamIds ? { _id: { $in: teamIds } } : {}) };
+  // "Active Workers"/"Workforce by status" mean the supplied workforce —
+  // both Client (our own, supplied to clients) and Subcontracted (sourced
+  // from an outside subcontractor) count here; only Own-type internal staff
+  // are excluded. Payroll's own aggregate below stays Client-only.
+  const employeeStatusFilter = { type: { $in: WORKFORCE_TYPES }, ...(teamIds ? { _id: { $in: teamIds } } : {}) };
 
   const markedTodayFilter = { date: toUtcDay(new Date()) };
   if (teamIds) markedTodayFilter.employee = { $in: teamIds };

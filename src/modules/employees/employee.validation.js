@@ -73,10 +73,11 @@ const employeeObjectSchema = z
       .regex(/^[A-Za-z0-9-]+$/, 'Only letters, numbers and dashes.')
       .transform((s) => s.toUpperCase()),
     fullName: z.string().trim().min(2, 'Full name is required.').max(100),
-    // 'Own' = internal staff (reports to a Manager); 'Client' = workforce
-    // supplied to clients (mapped to a Coordinator and/or a Manager). Only
-    // 'Client' requires the compliance/payroll fields below — see the
-    // superRefine at the bottom of this schema and Employee.model.js.
+    // 'Own' = internal staff (reports to a Manager); 'Client'/'Subcontracted'
+    // = workforce (see EMPLOYEE_TYPES in employee.model.js). Both workforce
+    // types require the compliance fields below; only 'Client' additionally
+    // requires salary, and only 'Subcontracted' requires `subcontractor` —
+    // see the superRefine at the bottom of this schema.
     type: z.enum(EMPLOYEE_TYPES).default('Client'),
     nationality: optionalStr(60),
     mobile: z.preprocess(emptyToUndef, phone.optional()),
@@ -130,26 +131,48 @@ const employeeObjectSchema = z
     // ApprovalWorkflow for this employee's requests. "" clears it (null),
     // not "leave unchanged" — same rule as coordinator/manager/weeklyOffDay.
     approvalWorkflow: nullableObjectId('approval workflow'),
+    // Who supplied this worker — required only when type is 'Subcontracted'
+    // (see the superRefine below); referential integrity (must be a real
+    // Subcontractor) is checked in the service, same as coordinator/manager.
+    subcontractor: nullableObjectId('subcontractor'),
     // NOTE: currentClient / currentSite are deliberately absent — they are set
     // by the deployment workflow (M6), and unknown keys are stripped by Zod,
     // so a hand-crafted request can't smuggle an assignment through this form.
   });
 
 /** CREATE: the object shape plus the type-driven cross-field check —
- *  nationality/mobile/joiningDate/salary are required only when type is
- *  'Client', mirroring the Mongoose conditional `required` on the model. */
+ *  mirrors the Mongoose conditional `required`s on the model exactly:
+ *  nationality/mobile/joiningDate for both workforce types, salary only for
+ *  'Client', `subcontractor` only for 'Subcontracted'. */
 export const createEmployeeSchema = employeeObjectSchema.superRefine((data, ctx) => {
-  if (data.type !== 'Client') return;
+  if (data.type === 'Own') return;
   if (!data.nationality) ctx.addIssue({ code: 'custom', path: ['nationality'], message: 'Nationality is required.' });
   if (!data.mobile) ctx.addIssue({ code: 'custom', path: ['mobile'], message: 'Enter a valid mobile number.' });
   if (!data.joiningDate) ctx.addIssue({ code: 'custom', path: ['joiningDate'], message: 'Joining date is required.' });
-  if (data.salary == null) ctx.addIssue({ code: 'custom', path: ['salary'], message: 'Salary is required.' });
+  if (data.type === 'Client' && data.salary == null) {
+    ctx.addIssue({ code: 'custom', path: ['salary'], message: 'Salary is required.' });
+  }
+  if (data.type === 'Subcontracted' && !data.subcontractor) {
+    ctx.addIssue({ code: 'custom', path: ['subcontractor'], message: 'Select who supplied this worker.' });
+  }
 });
 
 /** PATCH: any subset of the same fields, same rules — minus the create-only
  *  cross-field check above, which can't be evaluated against a partial body
- *  (a PATCH that only touches `salary` never resends `type`). */
-export const updateEmployeeSchema = employeeObjectSchema.partial();
+ *  (a PATCH that only touches `salary` never resends `type`).
+ *
+ *  `type` and `status` are re-declared here without their `.default()` —
+ *  same reasoning as `nullableWeekday` above: Zod's `.partial()` only makes a
+ *  field optional, it does NOT stop `.default()` from firing when the key is
+ *  omitted, so a bare `.partial()` here would silently reset `type` to
+ *  'Client' (and `status` to 'Active') on every PATCH that doesn't resend
+ *  them — e.g. a PATCH that only touches `joiningDate` would quietly turn a
+ *  'Subcontracted' or 'Own' employee into 'Client'. An omitted key on PATCH
+ *  must mean "leave unchanged," never "reset to default." */
+export const updateEmployeeSchema = employeeObjectSchema.partial().extend({
+  type: z.enum(EMPLOYEE_TYPES).optional(),
+  status: z.enum(EMPLOYEE_STATUSES).optional(),
+});
 
 export const listEmployeesSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

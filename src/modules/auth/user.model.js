@@ -18,10 +18,16 @@ import mongoose from 'mongoose';
  * validation schemas, and the seed script all import it from here so a new
  * role is added in exactly one place.
  *
- * `Worker` (added in P2-M1) is the self-service persona: a deployed employee
- * with a login that can see ONLY their own data. It is deliberately the last
- * entry and the odd one out — every OTHER role is "staff" (see STAFF_ROLES in
- * the rbac middleware), and the admin modules are staff-only.
+ * `Worker` (added in P2-M1) and `Staff` (added alongside the Subcontracted
+ * employee type) are both self-service personas — a login that can see ONLY
+ * its own data via the ESS portal (`/api/me`), never the company-wide admin
+ * modules. They are deliberately the last two entries and the odd ones out
+ * — every OTHER role is "staff" in the STAFF_ROLES sense (see the rbac
+ * middleware), and the admin modules are staff-only. `Worker` is for a
+ * deployed workforce employee (Client/Subcontracted type); `Staff` is the
+ * same self-service mechanism for an internal Own-type employee (e.g. office
+ * staff with no company-wide access) — same ESS shell, same routes, just a
+ * different Employee.type backing it.
  *
  * `Coordinator` (added in P2-M2) is staff, but scoped: they see and act on
  * only the Employees assigned to them (Employee.coordinator), not the whole
@@ -33,7 +39,7 @@ import mongoose from 'mongoose';
  * account and weren't part of the intended role set going forward. IT and
  * Office Staff are Employee.designation values, not roles — someone in
  * either position logs in as whichever of the roles above actually matches
- * their system access (typically HR or Accounts).
+ * their system access (typically HR, Accounts, or the self-service `Staff`).
  */
 export const ROLES = [
   'Admin',
@@ -41,6 +47,7 @@ export const ROLES = [
   'HR',
   'Accounts',
   'Coordinator',
+  'Staff',
   'Worker',
 ];
 

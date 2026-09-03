@@ -1,7 +1,8 @@
 /**
- * "Me" routes — the ESS portal's entire API surface (P2-M2). Worker-only:
- * staff use the full admin modules instead. Every route resolves data
- * against req.user.employee, never a client-supplied employee id.
+ * "Me" routes — the ESS portal's entire API surface (P2-M2). Worker and
+ * Staff logins only: everyone else uses the full admin modules instead.
+ * Every route resolves data against req.user.employee, never a
+ * client-supplied employee id.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -45,7 +46,7 @@ const payslipRunIdParamSchema = z.object({ runId: payrollRunIdParamSchema.shape.
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireRoles('Worker'));
+router.use(requireRoles('Worker', 'Staff'));
 
 router.get('/', asyncHandler(meController.getProfile));
 router.get('/documents', asyncHandler(meController.listDocuments));

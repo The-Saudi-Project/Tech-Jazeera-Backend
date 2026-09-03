@@ -25,13 +25,37 @@ import mongoose from 'mongoose';
 
 /** Single source of truth for status values — validation and UI import it. */
 export const EMPLOYEE_STATUSES = ['Active', 'On Leave', 'Exited'];
-/** 'Own' = internal staff (reports to a Manager). 'Client' = the workforce
- *  supplied to clients (mapped to a Coordinator and/or a Manager). */
-export const EMPLOYEE_TYPES = ['Own', 'Client'];
+/** 'Own' = internal staff (reports to a Manager). 'Client' = the company's
+ *  own workforce supplied to clients (mapped to a Coordinator and/or a
+ *  Manager). 'Subcontracted' = a worker sourced from an outside
+ *  Subcontractor (their employer of record, not this company) and placed
+ *  with a client — full compliance/attendance record, but never this
+ *  company's payroll (see `salary`'s own required-check below, which is
+ *  deliberately narrower than the other compliance fields'). */
+export const EMPLOYEE_TYPES = ['Own', 'Client', 'Subcontracted'];
+/** The "not internal staff" set — every module that means "the workforce
+ *  we track on-site" (Attendance, the Coordinator team scope, etc.) should
+ *  import this instead of re-deriving it, so a future fourth type doesn't
+ *  need finding every inline `!== 'Own'` check. */
+export const WORKFORCE_TYPES = ['Client', 'Subcontracted'];
 
-/** Only 'Client' employees carry the compliance/payroll fields below as required. */
-function requiredForClient() {
+/** Both workforce types carry the compliance/attendance fields below as
+ *  required — only 'Own' (internal staff) is exempt. */
+function requiredForWorkforce() {
+  return this.type !== 'Own';
+}
+
+/** Only 'Client' is paid through this company's own Payroll — a
+ *  Subcontracted worker's pay is the subcontractor's business, never
+ *  aggregated here (see payroll.service.js / dashboard.service.js, both of
+ *  which filter on `type: 'Client'` explicitly and must stay that way). */
+function requiredForOwnPayroll() {
   return this.type === 'Client';
+}
+
+/** A Subcontracted employee must name who supplied them. */
+function requiredForSubcontracted() {
+  return this.type === 'Subcontracted';
 }
 
 /**
@@ -52,10 +76,11 @@ const employeeSchema = new mongoose.Schema(
     // the unique index also backs duplicate detection (409 via error handler).
     employeeId: { type: String, required: true, unique: true, trim: true, uppercase: true },
     fullName: { type: String, required: true, trim: true },
-    // 'Own' = internal staff; 'Client' = workforce supplied to clients.
+    // 'Own' = internal staff; 'Client'/'Subcontracted' = workforce (see
+    // EMPLOYEE_TYPES above for the distinction between the two).
     type: { type: String, enum: EMPLOYEE_TYPES, required: true, default: 'Client' },
-    nationality: { type: String, required: requiredForClient, trim: true },
-    mobile: { type: String, required: requiredForClient, trim: true },
+    nationality: { type: String, required: requiredForWorkforce, trim: true },
+    mobile: { type: String, required: requiredForWorkforce, trim: true },
     // Optional — many field workers have no email. NOT unique for that reason.
     email: { type: String, trim: true, lowercase: true },
 
@@ -65,14 +90,14 @@ const employeeSchema = new mongoose.Schema(
     medical: { type: documentSchema, default: () => ({}) },
     drivingLicense: { type: documentSchema, default: () => ({}) },
 
-    joiningDate: { type: Date, required: requiredForClient },
+    joiningDate: { type: Date, required: requiredForWorkforce },
     designation: { type: String, required: true, trim: true },
     department: { type: String, trim: true },
     // Monthly salary in SAR. Number (not string) so M10 can aggregate costs.
     // Required only for Client — this is the figure Monthly Payroll sums, and
-    // that figure is deliberately scoped to the supplied workforce, not
-    // internal staff pay (see dashboard.service.js).
-    salary: { type: Number, required: requiredForClient, min: 0 },
+    // that figure is deliberately scoped to the supplied workforce we pay
+    // ourselves, never a Subcontracted worker's pay (see dashboard.service.js).
+    salary: { type: Number, required: requiredForOwnPayroll, min: 0 },
     // Optional WPS-style breakdown of `salary` (P2-M5) — null/unset means
     // "not broken down"; Payroll then treats the whole `salary` as Basic
     // rather than guessing a split percentage that was never agreed. Set
@@ -102,6 +127,18 @@ const employeeSchema = new mongoose.Schema(
     // Managed by the deployment workflow from M6 — never set via the HR form.
     currentClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
     currentSite: { type: String, trim: true, default: null },
+
+    // Who supplied this worker — required only for 'Subcontracted'. A
+    // reference, not a snapshot (same convention as coordinator/manager
+    // below): this record is looked up live, not duplicated, since it's
+    // populated on every read rather than needing durable point-in-time
+    // history the way Mobilisation's own subcontractor snapshot does.
+    subcontractor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subcontractor',
+      default: null,
+      required: requiredForSubcontracted,
+    },
 
     // P2-M2: the Coordinator user responsible for this employee's day-to-day
     // (leave decisions, expiry follow-up). Optional — HR/Manager/Admin assign
