@@ -1,99 +1,144 @@
 /**
  * Timesheet export — turns a processed result (from timesheet.service) into a
  * professionally formatted .xlsx Buffer. Kept separate from the business logic
- * so the file-format concern never leaks into the processor.
+ * so the file-format concern never leaks into the processor, and separate
+ * from I/O — an optional company logo is handed in as already-fetched bytes
+ * (see timesheet.controller.js), this module never fetches anything itself.
  *
- * Styling mirrors the app's theme (indigo header band) and the existing
- * attendance export, so every spreadsheet the ERP produces looks consistent.
+ * The exact layout (row heights, fonts, colors, column widths, the blank
+ * REMARKS/APPROVED columns) mirrors a real reference export the company
+ * already uses for printed/filed timesheets — matched deliberately, not
+ * just "close enough."
  */
 import ExcelJS from 'exceljs';
 import { minutesToHHMM } from './timesheet.time.js';
 
-// Theme (ARGB). Indigo band + tinted zebra rows, matching the app palette.
+// Theme (ARGB) — matches the app's own ink/muted/border tokens.
 const INK = 'FF14162B';
-const INDIGO = 'FF4F46E5';
-const HEADER_FILL = 'FF4F46E5';
-const HEADER_TEXT = 'FFFFFFFF';
+const MUTED = 'FF64748B';
 const ZEBRA_FILL = 'FFF3F4FB';
 const BORDER = 'FFD8DCEC';
+const DARK_BORDER = 'FF000000';
 
 const thin = { style: 'thin', color: { argb: BORDER } };
 const allBorders = { top: thin, left: thin, bottom: thin, right: thin };
+const thinDark = { style: 'thin', color: { argb: DARK_BORDER } };
+const darkBorders = { top: thinDark, left: thinDark, bottom: thinDark, right: thinDark };
 
 const HEADERS = [
   'Date', 'Day', 'Login', 'Logout', 'Worked', 'Required', 'Deficiency', 'Overtime', 'Status',
 ];
-const WIDTHS = [13, 7, 9, 9, 10, 10, 12, 10, 15];
+// REMARKS/APPROVED are blank, hand-filled columns on the printed sheet —
+// never populated by this export, only their header cell is styled.
+const MANUAL_HEADERS = ['REMARKS', 'APPROVED'];
+const WIDTHS = [20, 10, 9, 9, 10, 10, 12, 10, 15, 11, 12];
 
 /** Status → font color, so problem days read at a glance. */
 const STATUS_COLOR = {
   Present: 'FF16A34A',
   Overtime: 'FFB45309',
   Deficient: 'FFDC2626',
-  'Single Punch': INDIGO,
-  'No Attendance': 'FF64748B',
+  'Single Punch': 'FF4F46E5',
+  'No Attendance': MUTED,
   Holiday: 'FF0D9488', // teal
   'Holiday (Worked)': 'FFB45309', // amber, like overtime
 };
 
-/** @param {object} result  the object returned by timesheet.service.processTimesheet */
-export async function buildTimesheetXlsx(result) {
+/**
+ * @param {object} result  the object returned by timesheet.service.processTimesheet
+ * @param {{buffer: Buffer, extension: 'png'|'jpeg'|'gif'} | null} [logo]
+ *   already-fetched company logo bytes, or null/undefined for no logo — the
+ *   normal case until an Admin uploads one (see companySettings module).
+ */
+export async function buildTimesheetXlsx(result, logo = null) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Al Jazeera ERP';
   wb.created = new Date();
+  const lastCol = HEADERS.length + MANUAL_HEADERS.length; // 11
+
+  // Freeze pane sits right below the column-header row, wherever that ends
+  // up (row 6 normally, row 7 with a logo) — computed after we know.
+  const headerRowNumber = logo ? 7 : 6;
   const ws = wb.addWorksheet('Timesheet', {
-    views: [{ state: 'frozen', ySplit: 6 }], // keep the header visible while scrolling
+    views: [{ state: 'frozen', ySplit: headerRowNumber }],
   });
-  const lastCol = HEADERS.length; // 9
 
-  // ---- Title band --------------------------------------------------------
-  ws.mergeCells(1, 1, 1, lastCol);
-  const title = ws.getCell('A1');
-  title.value = 'Monthly Timesheet';
-  title.font = { bold: true, size: 16, color: { argb: INK } };
+  let r = 1;
 
-  ws.mergeCells(2, 1, 2, lastCol);
-  ws.getCell('A2').value = `${result.employee.fullName}  (${result.employee.employeeId})`;
-  ws.getCell('A2').font = { bold: true, size: 12, color: { argb: INDIGO } };
+  // ---- Logo band (optional) ----------------------------------------------
+  if (logo) {
+    const imageId = wb.addImage({ buffer: logo.buffer, extension: logo.extension });
+    ws.mergeCells(r, 1, r, lastCol);
+    ws.getRow(r).height = 116.25;
+    // 0-indexed cell anchors — fills the merged band exactly, stretching
+    // the image to fit (same as a picture pasted and stretched in Excel).
+    ws.addImage(imageId, { tl: { col: 0, row: r - 1 }, br: { col: lastCol, row: r }, editAs: 'oneCell' });
+    r += 1;
+  }
 
-  ws.mergeCells(3, 1, 3, lastCol);
-  ws.getCell('A3').value = `${result.monthName} ${result.year}`;
-  ws.getCell('A3').font = { size: 11, color: { argb: INK } };
+  // ---- Title band ----------------------------------------------------------
+  ws.mergeCells(r, 1, r, lastCol);
+  ws.getCell(r, 1).value = 'Monthly Timesheet';
+  ws.getCell(r, 1).font = { bold: true, size: 16, color: { argb: INK } };
+  r += 1;
 
-  ws.mergeCells(4, 1, 4, lastCol);
-  ws.getCell('A4').value =
+  ws.mergeCells(r, 1, r, lastCol);
+  ws.getCell(r, 1).value = result.employee.fullName;
+  ws.getCell(r, 1).font = { bold: true, size: 12, color: { argb: INK } };
+  r += 1;
+
+  ws.mergeCells(r, 1, r, lastCol);
+  ws.getCell(r, 1).value = `${result.monthName} ${result.year}`;
+  ws.getCell(r, 1).font = { size: 11, color: { argb: INK } };
+  r += 1;
+
+  ws.mergeCells(r, 1, r, lastCol);
+  ws.getCell(r, 1).value =
     `Required hours/day: ${minutesToHHMM(result.requiredMinutes)}   ·   ` +
     `Generated: ${new Date(result.generatedAt).toLocaleString('en-GB')}`;
-  ws.getCell('A4').font = { size: 10, color: { argb: 'FF64748B' } };
+  ws.getCell(r, 1).font = { size: 10, color: { argb: MUTED } };
+  r += 1;
 
-  ws.getRow(5).height = 4; // thin spacer
-
-  // ---- Column headers ----------------------------------------------------
-  const headerRow = ws.getRow(6);
+  // ---- Column headers ------------------------------------------------------
+  const headerRow = ws.getRow(r);
   HEADERS.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
     cell.value = h;
-    cell.font = { bold: true, color: { argb: HEADER_TEXT } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
+    cell.font = { bold: true, color: { argb: INK } };
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
     cell.border = allBorders;
   });
-  headerRow.height = 20;
+  // REMARKS/APPROVED — a distinct, hand-fill-in look (Arial, a solid dark
+  // border) on the header only; data rows leave these two columns untouched.
+  MANUAL_HEADERS.forEach((h, i) => {
+    const cell = headerRow.getCell(HEADERS.length + i + 1);
+    cell.value = h;
+    cell.font = { bold: true, size: 10, name: 'Arial' };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = darkBorders;
+  });
+  headerRow.height = 20.1;
+  r += 1;
 
-  // ---- Data rows ---------------------------------------------------------
-  result.rows.forEach((r, idx) => {
-    const row = ws.addRow([
-      r.date,
-      r.day,
-      r.login ?? '',
-      r.logout ?? '',
-      minutesToHHMM(r.workedMinutes),
-      minutesToHHMM(r.requiredMinutes),
-      minutesToHHMM(r.deficiencyMinutes),
-      minutesToHHMM(r.overtimeMinutes),
-      r.status,
-    ]);
-    row.eachCell((cell, col) => {
+  // ---- Data rows -------------------------------------------------------
+  result.rows.forEach((row, idx) => {
+    const excelRow = ws.getRow(r);
+    const values = [
+      row.date,
+      row.day,
+      row.login ?? '',
+      row.logout ?? '',
+      minutesToHHMM(row.workedMinutes),
+      minutesToHHMM(row.requiredMinutes),
+      minutesToHHMM(row.deficiencyMinutes),
+      minutesToHHMM(row.overtimeMinutes),
+      row.status,
+    ];
+    values.forEach((v, i) => {
+      excelRow.getCell(i + 1).value = v;
+    });
+    excelRow.eachCell({ includeEmpty: false }, (cell, col) => {
+      if (col > HEADERS.length) return; // REMARKS/APPROVED stay blank & unstyled
       cell.border = allBorders;
       cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
       if (idx % 2 === 1) {
@@ -101,15 +146,17 @@ export async function buildTimesheetXlsx(result) {
       }
     });
     // Colour the status cell.
-    const statusCell = row.getCell(lastCol);
-    statusCell.font = { bold: true, color: { argb: STATUS_COLOR[r.status] ?? INK } };
+    const statusCell = excelRow.getCell(HEADERS.length);
+    statusCell.font = { bold: true, color: { argb: STATUS_COLOR[row.status] ?? INK } };
+    r += 1;
   });
 
   // ---- Summary block -----------------------------------------------------
-  ws.addRow([]);
+  r += 1; // blank spacer row
   const s = result.summary;
-  const summaryTitle = ws.addRow(['Monthly Summary']);
-  summaryTitle.getCell(1).font = { bold: true, size: 12, color: { argb: INK } };
+  ws.getCell(r, 1).value = 'Monthly Summary';
+  ws.getCell(r, 1).font = { bold: true, size: 12, color: { argb: INK } };
+  r += 1;
 
   const summaryLines = [
     ['Working Days', String(s.workingDays)],
@@ -123,11 +170,14 @@ export async function buildTimesheetXlsx(result) {
     ['Total Overtime', minutesToHHMM(s.totalOvertimeMinutes)],
   ];
   for (const [label, value] of summaryLines) {
-    const row = ws.addRow([label, value]);
+    const row = ws.getRow(r);
+    row.getCell(1).value = label;
+    row.getCell(2).value = value;
     row.getCell(1).font = { bold: true, color: { argb: INK } };
     row.getCell(1).border = allBorders;
     row.getCell(2).border = allBorders;
     row.getCell(2).alignment = { horizontal: 'center' };
+    r += 1;
   }
 
   // ---- Column widths -----------------------------------------------------
