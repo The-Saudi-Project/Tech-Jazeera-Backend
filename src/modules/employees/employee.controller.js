@@ -75,3 +75,14 @@ export async function resetLoginPassword(req, res) {
   const data = await employeeService.resetEmployeeLoginPassword(req.params.id, actor(req));
   res.json(new ApiResponse('Password reset.', data));
 }
+
+/**
+ * PATCH /api/employees/:id/user/role   (Admin, HR)
+ * Corrects an existing login's role — revokes its sessions so the change
+ * takes effect immediately instead of at next natural token expiry.
+ * 200 → data: { id, name, email, role } · 404 no login yet
+ */
+export async function updateLoginRole(req, res) {
+  const data = await employeeService.updateEmployeeLoginRole(req.params.id, req.body.role, actor(req));
+  res.json(new ApiResponse('Login role updated.', data));
+}

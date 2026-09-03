@@ -19,6 +19,7 @@ import {
   listEmployeesSchema,
   employeeIdParamSchema,
   createLoginSchema,
+  updateLoginRoleSchema,
 } from './employee.validation.js';
 import * as employeeController from './employee.controller.js';
 
@@ -76,6 +77,17 @@ router.post(
   requireRoles('Admin', 'HR'),
   validate({ params: employeeIdParamSchema }),
   asyncHandler(employeeController.resetLoginPassword)
+);
+
+// Correct an existing login's role — Worker vs Staff (or any other role)
+// picked wrong at provisioning time. Same circle as the rest of login
+// management; see employee.service.js's updateEmployeeLoginRole for why
+// this lives here instead of the Users module.
+router.patch(
+  '/:id/user/role',
+  requireRoles('Admin', 'HR'),
+  validate({ params: employeeIdParamSchema, body: updateLoginRoleSchema }),
+  asyncHandler(employeeController.updateLoginRole)
 );
 
 export default router;

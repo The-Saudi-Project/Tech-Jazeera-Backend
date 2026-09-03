@@ -230,3 +230,14 @@ export const createLoginSchema = z.object({
     error: `Role must be one of: ${EMPLOYEE_LOGIN_ROLES.join(', ')}.`,
   }),
 });
+
+/** Body for correcting an existing login's role — same allowed set as
+ *  creation (any non-Admin role). Needed because a role picked at
+ *  provisioning time (e.g. 'Worker' vs 'Staff' for an internal employee)
+ *  isn't always the right one, and there was previously no way to fix it
+ *  short of deleting the User document directly in the database. */
+export const updateLoginRoleSchema = z.object({
+  role: z.enum(EMPLOYEE_LOGIN_ROLES, {
+    error: `Role must be one of: ${EMPLOYEE_LOGIN_ROLES.join(', ')}.`,
+  }),
+});

@@ -233,6 +233,39 @@ export async function createEmployeeLogin(employeeId, { email, role }, actor) {
 }
 
 /**
+ * Admin/HR corrects an existing login's role — e.g. it was provisioned as
+ * 'Worker' when this is really an internal 'Own'-type employee who should
+ * have gotten 'Staff' instead. The Users module's updateStaffUser() covers
+ * this same action for the 5 non-Worker roles, but deliberately excludes
+ * Worker (and, by the same logic, Staff) — those self-service logins aren't
+ * listed on the company-wide Team page at all, so this employee-scoped
+ * route is the only place either of them can be corrected. Revokes every
+ * existing session for the login: the role is baked into its access token,
+ * so an old token would otherwise keep acting under the previous role until
+ * it naturally expired.
+ */
+export async function updateEmployeeLoginRole(employeeId, role, actor) {
+  const login = await User.findOne({ employee: employeeId });
+  if (!login) throw new ApiError(404, 'This employee does not have a login yet.');
+
+  const previousRole = login.role;
+  login.role = role;
+  await login.save();
+  await RefreshToken.deleteMany({ user: login._id });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'user.role.update',
+    targetType: 'User',
+    targetId: login._id,
+    meta: { email: login.email, employeeId, from: previousRole, to: role },
+    ip: actor.ip,
+  });
+
+  return { id: login._id.toString(), name: login.name, email: login.email, role: login.role };
+}
+
+/**
  * Admin/HR resets a Worker's password — the recovery path for a forgotten
  * or lost temp password, mirroring resetStaffPassword() in the Users module.
  * No self-service email flow exists for this project (no email provider is
