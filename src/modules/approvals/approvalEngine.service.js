@@ -24,7 +24,7 @@ import { notifyUser, notifyEmployeeUser } from '../notifications/notification.se
  * membership" from "decided via the Admin override" so the Approval Log can
  * show it transparently.
  */
-async function resolveStepAuthority(actor, stepRoleIds) {
+export async function resolveStepAuthority(actor, stepRoleIds) {
   if (stepRoleIds?.length) {
     const matchedRole = await ApprovalRole.findOne({ _id: { $in: stepRoleIds }, members: actor.userId })
       .select('_id')
@@ -81,7 +81,7 @@ export async function annotateCanDecide(items, actor, { pendingStatus, legacyAll
 }
 
 /** Every distinct User id holding any of `roleIds` — for next-step notifications. */
-async function membersOfRoles(roleIds) {
+export async function membersOfRoles(roleIds) {
   if (!roleIds?.length) return [];
   const roles = await ApprovalRole.find({ _id: { $in: roleIds } }).select('members').lean();
   const ids = new Set();
@@ -108,6 +108,7 @@ async function membersOfRoles(roleIds) {
  * @param {string} auditAction          dot-namespaced prefix, e.g. 'leave.request'
  * @param {(doc:object) => {type:string,title:string,body?:string,url?:string}} buildFinalNotification  sent to the requester once the request reaches a terminal state (Approved/Rejected)
  * @param {(doc:object, stepIndex:number) => {type:string,title:string,body?:string,url?:string}} [buildStepNotification]  sent to every member of the NEXT step's role pool
+ * @param {(doc:object, notification:object) => Promise<void>} [notifyFinal]  how to deliver buildFinalNotification's result — defaults to notifyEmployeeUser(doc.employee, ...), the shape every existing caller (Leave/SalaryAdvance/Reimbursement/Timesheet) uses. Override for a request type whose "who submitted this" isn't an Employee login — e.g. Mobilisation, whose `coordinators[]` are Users directly, not an Employee to resolve through.
  */
 export async function decideApprovalStep({
   Model,
@@ -122,6 +123,7 @@ export async function decideApprovalStep({
   auditAction,
   buildFinalNotification,
   buildStepNotification,
+  notifyFinal = (doc, notification) => notifyEmployeeUser(doc.employee, notification),
 }) {
   const doc = await Model.findById(id);
   if (!doc) throw new ApiError(404, notFoundMessage);
@@ -151,7 +153,7 @@ export async function decideApprovalStep({
       ip: actor.ip,
     });
     const plain = doc.toObject();
-    await notifyEmployeeUser(plain.employee, buildFinalNotification(plain));
+    await notifyFinal(plain, buildFinalNotification(plain));
     return plain;
   }
 
@@ -197,7 +199,7 @@ export async function decideApprovalStep({
       meta: { decisionNote: note, step: stepIndex, viaAdminOverride },
       ip: actor.ip,
     });
-    await notifyEmployeeUser(updated.employee, buildFinalNotification(updated));
+    await notifyFinal(updated, buildFinalNotification(updated));
     return updated;
   }
 
@@ -248,6 +250,6 @@ export async function decideApprovalStep({
     meta: { decisionNote: note, step: stepIndex, viaAdminOverride },
     ip: actor.ip,
   });
-  await notifyEmployeeUser(updated.employee, buildFinalNotification(updated));
+  await notifyFinal(updated, buildFinalNotification(updated));
   return updated;
 }

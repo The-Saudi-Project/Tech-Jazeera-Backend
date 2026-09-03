@@ -54,6 +54,9 @@ import meRoutes from './modules/me/me.routes.js';
 import staffAttendanceRoutes from './modules/staffAttendance/staffAttendance.routes.js';
 import approvalsRoutes from './modules/approvals/approvals.routes.js';
 import companySettingsRoutes from './modules/companySettings/companySettings.routes.js';
+import subcontractorRoutes from './modules/subcontractors/subcontractor.routes.js';
+import mobilisationRoutes from './modules/mobilisations/mobilisation.routes.js';
+import mobilisationSettingsRoutes from './modules/mobilisationSettings/mobilisationSettings.routes.js';
 
 const app = express();
 
@@ -121,6 +124,9 @@ app.use('/api/me', meRoutes);
 app.use('/api/staff-attendance', staffAttendanceRoutes);
 app.use('/api/approvals', approvalsRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
+app.use('/api/subcontractors', subcontractorRoutes);
+app.use('/api/mobilisations', mobilisationRoutes);
+app.use('/api/mobilisation-settings', mobilisationSettingsRoutes);
 
 // Public NFC tap pages — server-rendered HTML, NOT under /api (no auth, own
 // rate limiter). Must be mounted before the 404 handler.

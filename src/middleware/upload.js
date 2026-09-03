@@ -226,6 +226,13 @@ const multerUpload = multer({
   limits: { fileSize: MAX_FILE_BYTES, files: 1 },
 }).single('file');
 
+const MAX_MOBILISATION_FILES = 10;
+const multerUploadMany = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: { fileSize: MAX_FILE_BYTES, files: MAX_MOBILISATION_FILES },
+}).array('files', MAX_MOBILISATION_FILES);
+
 /**
  * Parse the upload, verify it, then store it. Field name must be `file`.
  *
@@ -261,6 +268,54 @@ export function uploadSingle(req, res, next) {
       return next(cloudinaryUploadError(uploadErr));
     } finally {
       delete req.file.buffer;
+    }
+
+    next();
+  });
+}
+
+/**
+ * Same contract as uploadSingle, for multiple files in one request under
+ * field name `files` (used by mobilisation documents — a contract, an ID
+ * copy, etc. attached together). Field name must be `files`.
+ *
+ * On success `req.files` is an array where each entry carries `filename`
+ * (the Cloudinary public_id), matching uploadSingle's single-file shape.
+ */
+export function uploadMultiple(req, res, next) {
+  multerUploadMany(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return next(new ApiError(400, 'A file is too large (maximum 10 MB).'));
+        }
+        if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return next(new ApiError(400, `Too many files (maximum ${MAX_MOBILISATION_FILES}).`));
+        }
+        return next(new ApiError(400, `Upload error: ${err.message}`));
+      }
+      return next(err);
+    }
+
+    if (!req.files?.length) return next();
+
+    for (const file of req.files) {
+      const problem = verifyContent(file);
+      if (problem) return next(new ApiError(400, `${file.originalname}: ${problem}`));
+    }
+
+    try {
+      await Promise.all(
+        req.files.map(async (file) => {
+          const result = await uploadBuffer(file.buffer);
+          file.filename = result.public_id;
+          file.size = result.bytes ?? file.size;
+        })
+      );
+    } catch (uploadErr) {
+      return next(cloudinaryUploadError(uploadErr));
+    } finally {
+      for (const file of req.files) delete file.buffer;
     }
 
     next();

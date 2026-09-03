@@ -176,6 +176,21 @@ export async function isApprovalRoleMember(userId) {
 }
 
 /**
+ * Is `userId` a member of any role in `roleIds` — a generalization of
+ * isApprovalRoleMember to a specific SUBSET of roles, for callers that need
+ * "one of THESE roles," not "any role at all." Used by
+ * mobilisations/mobilisation.service.js for both the self-mobilise gate
+ * (MobilisationSettings.selfMobiliseRoles) and the read-only viewer circle
+ * (MobilisationSettings.viewerRoles) — one query shape, reused twice, rather
+ * than inventing a per-feature membership check.
+ */
+export async function isMemberOfAnyRole(userId, roleIds) {
+  if (!roleIds?.length) return false;
+  const role = await ApprovalRole.findOne({ _id: { $in: roleIds }, members: userId }).select('_id').lean();
+  return Boolean(role);
+}
+
+/**
  * Merge every configured request type's workflow-governed requests into one
  * ordered, filterable log. In-memory merge + pagination across the (small
  * number of) source collections — plenty for this app's scale, and far
