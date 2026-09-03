@@ -6,6 +6,7 @@ import Employee from './employee.model.js';
 import User, { MANAGER_ELIGIBLE_ROLES } from '../auth/user.model.js';
 import RefreshToken from '../auth/refreshToken.model.js';
 import Attendance from '../attendance/attendance.model.js';
+import ApprovalWorkflow from '../approvals/approvalWorkflow.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, generateTempPassword } from '../auth/auth.service.js';
 import { logAudit } from '../audit/audit.service.js';
@@ -116,6 +117,7 @@ export async function getEmployee(id, actor) {
     .populate('currentClient', 'companyName')
     .populate('coordinator', 'name email')
     .populate('manager', 'name email')
+    .populate('approvalWorkflow', 'name isActive')
     .populate('createdBy', 'name role')
     .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
@@ -150,6 +152,15 @@ async function assertValidManager(managerId) {
   const manager = await User.findById(managerId).lean();
   if (!manager || !MANAGER_ELIGIBLE_ROLES.includes(manager.role)) {
     throw new ApiError(400, 'Selected manager must be an Admin or Manager account.');
+  }
+}
+
+/** The assigned approval-workflow override, if any, must actually exist and be active. */
+async function assertValidApprovalWorkflow(workflowId) {
+  if (!workflowId) return;
+  const workflow = await ApprovalWorkflow.findById(workflowId).lean();
+  if (!workflow || !workflow.isActive) {
+    throw new ApiError(400, 'Selected approval workflow is not valid or is inactive.');
   }
 }
 
@@ -252,6 +263,7 @@ export async function createEmployee(data, actor) {
   }
   await assertValidCoordinator(payload.coordinator);
   await assertValidManager(payload.manager);
+  await assertValidApprovalWorkflow(payload.approvalWorkflow);
   const employee = await Employee.create(payload);
   await logAudit({
     user: actor.userId,
@@ -267,6 +279,7 @@ export async function createEmployee(data, actor) {
 export async function updateEmployee(id, data, actor) {
   if ('coordinator' in data) await assertValidCoordinator(data.coordinator);
   if ('manager' in data) await assertValidManager(data.manager);
+  if ('approvalWorkflow' in data) await assertValidApprovalWorkflow(data.approvalWorkflow);
   const employee = await Employee.findByIdAndUpdate(id, data, {
     new: true, // return the updated document, not the stale one
     runValidators: true, // Mongoose skips schema validation on updates unless told

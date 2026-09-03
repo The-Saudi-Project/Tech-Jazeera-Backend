@@ -16,8 +16,15 @@ import { resolveWeeklyCap } from '../ramadan/ramadanPeriod.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** The ORIGINAL decide-route role gate for a Timesheet — preserved exactly
+ *  as the authorization used whenever no ApprovalWorkflow governs a request
+ *  (see approvalEngine.service.js's legacy path). */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
 
 // Labor Law Article 98: 8 hours/day, 48 hours/week — the fixed statutory
 // normal week used whenever a timesheet's week doesn't overlap a configured
@@ -99,17 +106,27 @@ export async function submitTimesheet(employeeId, data, actor) {
   const totals = await computeTotals(employee, periodStart, periodEnd);
   const existing = await Timesheet.findOne({ employee: employeeId, periodStart });
 
+  // Every timesheet needs a real decision (no auto-approval concept here) —
+  // re-resolved on every (re)submission, including a resubmission after
+  // Rejection, so a workflow change since the last attempt always applies.
+  let workflowFields = { workflow: null, workflowName: null, steps: undefined, currentStep: 0 };
+  const workflow = await resolveApprovalWorkflow(employee, 'Timesheet');
+  if (workflow) {
+    workflowFields = { workflow: workflow._id, workflowName: workflow.name, steps: workflow.steps, currentStep: 0 };
+  }
+
   let timesheet;
   if (existing) {
     if (existing.status !== 'Rejected') {
       throw new ApiError(409, `This week's timesheet is already ${existing.status.toLowerCase()}.`);
     }
-    Object.assign(existing, totals, {
+    Object.assign(existing, totals, workflowFields, {
       status: 'Submitted',
       notes: data.notes,
       decidedBy: null,
       decidedAt: null,
       decisionNote: null,
+      approvalTrail: undefined,
     });
     timesheet = await existing.save();
   } else {
@@ -119,6 +136,7 @@ export async function submitTimesheet(employeeId, data, actor) {
       periodEnd,
       ...totals,
       notes: data.notes,
+      ...workflowFields,
     });
   }
 
@@ -142,61 +160,106 @@ export async function listOwnTimesheets(employeeId, { page, limit }) {
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-export async function listTimesheets({ page, limit, status, employee }) {
+export async function listTimesheets({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
   if (employee) filter.employee = employee;
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     Timesheet.find(filter)
       .sort({ periodStart: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     Timesheet.countDocuments(filter),
   ]);
+  const items = actor
+    ? await annotateCanDecide(rawItems, actor, { pendingStatus: 'Submitted', legacyAllowedRoles: LEGACY_DECIDE_ROLES })
+    : rawItems;
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-export async function decideTimesheet(id, { status, decisionNote }, actor) {
-  const timesheet = await Timesheet.findById(id);
-  if (!timesheet) throw new ApiError(404, 'Timesheet not found.');
-  if (timesheet.status !== 'Submitted') throw new ApiError(400, 'Only a submitted timesheet can be decided.');
-
-  timesheet.status = status;
-  timesheet.decidedBy = actor.userId;
-  timesheet.decidedAt = new Date();
-  timesheet.decisionNote = decisionNote;
-  await timesheet.save();
-
-  await logAudit({
-    user: actor.userId,
-    action: `timesheet.${status.toLowerCase()}`,
-    targetType: 'Timesheet',
-    targetId: timesheet._id,
-    meta: { decisionNote },
-    ip: actor.ip,
-  });
-  await notifyEmployeeUser(timesheet.employee, {
+function buildTimesheetFinalNotification(doc) {
+  return {
     type: 'RequestStatus',
-    title: `Timesheet ${status.toLowerCase()}`,
-    body: `Week of ${timesheet.periodStart.toISOString().slice(0, 10)}${decisionNote ? ` — ${decisionNote}` : ''}`,
-    url: '/me/attendance',
-  });
-  return timesheet.toObject();
+    title: `Timesheet ${doc.status.toLowerCase()}`,
+    body: `Week of ${new Date(doc.periodStart).toISOString().slice(0, 10)}${doc.decisionNote ? ` — ${doc.decisionNote}` : ''}`,
+    url: (role) => (role === 'Worker' ? '/me/attendance' : '/timesheets'),
+  };
 }
 
-/** Approve many Submitted timesheets at once (the plan's "bulk approve a week"). */
+export async function decideTimesheet(id, { status, decisionNote }, actor) {
+  return decideApprovalStep({
+    Model: Timesheet,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'Submitted',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    notFoundMessage: 'Timesheet not found.',
+    auditAction: 'timesheet',
+    buildFinalNotification: buildTimesheetFinalNotification,
+    buildStepNotification: () => ({
+      type: 'RequestStatus',
+      title: 'A timesheet needs your approval',
+      url: '/timesheets',
+    }),
+  });
+}
+
+/**
+ * Approve many Submitted timesheets at once (the plan's "bulk approve a
+ * week"). Unlike a single decide, this is a FULL-APPROVAL action — a
+ * timesheet mid-way through a multi-step workflow is skipped rather than
+ * silently advanced by one step, since "approve these N" shouldn't turn
+ * into partial progress an approver didn't ask for. Any row a caller isn't
+ * actually authorized to decide (wrong role for that step, already decided
+ * by someone else) is also skipped, not allowed to fail the whole batch.
+ */
 export async function bulkApproveTimesheets(ids, actor) {
-  const result = await Timesheet.updateMany(
-    { _id: { $in: ids }, status: 'Submitted' },
-    { status: 'Approved', decidedBy: actor.userId, decidedAt: new Date() }
-  );
+  const timesheets = await Timesheet.find({ _id: { $in: ids } })
+    .select('status workflow currentStep steps')
+    .lean();
+  const byId = new Map(timesheets.map((t) => [t._id.toString(), t]));
+
+  let approved = 0;
+  let skipped = 0;
+
+  for (const id of ids) {
+    const ts = byId.get(id);
+    const isMidChain = ts?.workflow && ts.currentStep < (ts.steps?.length ?? 0) - 1;
+    if (!ts || ts.status !== 'Submitted' || isMidChain) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await decideApprovalStep({
+        Model: Timesheet,
+        id,
+        decision: 'Approved',
+        actor,
+        pendingStatus: 'Submitted',
+        legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+        notFoundMessage: 'Timesheet not found.',
+        auditAction: 'timesheet',
+        buildFinalNotification: buildTimesheetFinalNotification,
+      });
+      approved += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+
   await logAudit({
     user: actor.userId,
     action: 'timesheet.bulkApprove',
-    meta: { requested: ids.length, approved: result.modifiedCount },
+    meta: { requested: ids.length, approved, skipped },
     ip: actor.ip,
   });
-  return { requested: ids.length, approved: result.modifiedCount };
+  return { requested: ids.length, approved, skipped };
 }

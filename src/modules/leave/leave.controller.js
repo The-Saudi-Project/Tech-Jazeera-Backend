@@ -1,10 +1,11 @@
 /**
  * Leave controller — HTTP translation only.
  */
+import ApiError from '../../utils/ApiError.js';
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as leaveService from './leave.service.js';
 
-const actor = (req) => ({ userId: req.user.id, role: req.user.role, ip: req.ip });
+const actor = (req) => ({ userId: req.user.id, role: req.user.role, employee: req.user.employee, ip: req.ip });
 
 /** GET /api/leave-types — any authenticated user (a Worker needs this to submit). */
 export async function listTypes(req, res) {
@@ -28,6 +29,26 @@ export async function updateType(req, res) {
 export async function list(req, res) {
   const data = await leaveService.listLeaveRequests(req.query, actor(req));
   res.json(new ApiResponse('Leave requests.', data));
+}
+
+/**
+ * POST /api/leave — a STAFF member submitting their OWN leave request
+ * (Coordinator/HR/Manager/Accounts; Admin has no Employee record, see
+ * below). Workers use /api/me/leave instead. This is the staff-submission
+ * gap the Approval Hierarchy work filled — previously staff had no
+ * submission path of their own at all.
+ */
+export async function submit(req, res) {
+  if (!req.user.employee) {
+    throw new ApiError(
+      400,
+      'Your account has no linked employee record, so there is nothing to submit a personal request against.'
+    );
+  }
+  const request = await leaveService.submitLeaveRequest(req.user.employee, req.body, actor(req));
+  const message =
+    request.status === 'AutoApproved' ? 'Leave request approved.' : 'Leave request submitted for review.';
+  res.status(201).json(new ApiResponse(message, request));
 }
 
 /** PATCH /api/leave/:id/decide   (Admin, Manager, HR, Coordinator-own-team) */

@@ -7,8 +7,15 @@ import SalaryAdvance from './advance.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** The ORIGINAL decide-route role gate for a SalaryAdvance — preserved
+ *  exactly as the authorization used whenever no ApprovalWorkflow governs a
+ *  request (see approvalEngine.service.js's legacy path). */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
 
 /** Adds the derived repayment figures every caller needs — never stored,
  *  always computed fresh from the repayments ledger so it can't drift. */
@@ -29,7 +36,16 @@ export async function submitAdvance(employeeId, data, actor) {
     throw new ApiError(409, 'You already have an advance request in progress — it must be decided and repaid before requesting another.');
   }
 
-  const advance = await SalaryAdvance.create({ employee: employeeId, ...data });
+  // Unlike Leave, every advance request needs a real decision (no
+  // auto-approval concept here) — so the workflow, if any, is resolved
+  // unconditionally at submission, not gated on a particular status.
+  let workflowFields = {};
+  const workflow = await resolveApprovalWorkflow(employee, 'SalaryAdvance');
+  if (workflow) {
+    workflowFields = { workflow: workflow._id, workflowName: workflow.name, steps: workflow.steps, currentStep: 0 };
+  }
+
+  const advance = await SalaryAdvance.create({ employee: employeeId, ...data, ...workflowFields });
   await logAudit({
     user: actor.userId,
     action: 'advance.submit',
@@ -71,48 +87,67 @@ export async function cancelAdvance(employeeId, id, actor) {
   return withBalance(advance.toObject());
 }
 
-export async function listAdvances({ page, limit, status, employee }) {
+/**
+ * Staff review queue. Coordinator is NOT part of the financial-requests
+ * review circle (unlike Leave) — the ORIGINAL design here already excluded
+ * them from deciding/handling money. Now that Coordinators can self-submit
+ * (P2-M4+), they may see this list too, but scoped to ONLY their own
+ * requests — never the company-wide view the original 4 reviewer roles get.
+ */
+export async function listAdvances({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
   if (employee) filter.employee = employee;
-  const [items, total] = await Promise.all([
+
+  if (actor?.role === 'Coordinator') {
+    if (employee && employee !== actor.employee) {
+      throw new ApiError(403, 'You do not have access to this employee.');
+    }
+    filter.employee = actor.employee;
+  }
+
+  const [rawItems, total] = await Promise.all([
     SalaryAdvance.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     SalaryAdvance.countDocuments(filter),
   ]);
+  const items = actor
+    ? await annotateCanDecide(rawItems, actor, { pendingStatus: 'Pending', legacyAllowedRoles: LEGACY_DECIDE_ROLES })
+    : rawItems;
   return { items: items.map(withBalance), total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export async function decideAdvance(id, { status, decisionNote }, actor) {
-  const advance = await SalaryAdvance.findById(id);
-  if (!advance) throw new ApiError(404, 'Advance request not found.');
-  if (advance.status !== 'Pending') throw new ApiError(400, 'Only a pending request can be decided.');
-
-  advance.status = status;
-  advance.decidedBy = actor.userId;
-  advance.decidedAt = new Date();
-  advance.decisionNote = decisionNote;
-  await advance.save();
-
-  await logAudit({
-    user: actor.userId,
-    action: `advance.${status.toLowerCase()}`,
-    targetType: 'SalaryAdvance',
-    targetId: advance._id,
-    meta: { decisionNote },
-    ip: actor.ip,
+  const advance = await decideApprovalStep({
+    Model: SalaryAdvance,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    notFoundMessage: 'Advance request not found.',
+    auditAction: 'advance',
+    buildFinalNotification: (doc) => ({
+      type: 'RequestStatus',
+      title: `Salary advance ${doc.status.toLowerCase()}`,
+      body: doc.decisionNote || undefined,
+      url: (role) => (role === 'Worker' ? '/me/requests' : '/financial-requests'),
+    }),
+    buildStepNotification: () => ({
+      type: 'RequestStatus',
+      title: 'A salary advance request needs your approval',
+      url: '/financial-requests',
+    }),
   });
-  await notifyEmployeeUser(advance.employee, {
-    type: 'RequestStatus',
-    title: `Salary advance ${status.toLowerCase()}`,
-    body: decisionNote || undefined,
-    url: '/me/requests',
-  });
-  return withBalance(advance.toObject());
+  return withBalance(advance);
 }
 
 export async function addRepayment(id, data, actor) {

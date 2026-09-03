@@ -16,6 +16,13 @@ import LeaveRequest from './leaveRequest.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+
+/** The ORIGINAL decide-route role gate for Leave — preserved exactly as the
+ *  authorization used whenever no ApprovalWorkflow governs a request (see
+ *  approvalEngine.service.js's legacy path). */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR', 'Coordinator'];
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -320,6 +327,23 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
   const evaluation = await evaluateEligibility(employee, leaveType, days);
   const status = evaluation.eligible && evaluation.autoApprovable ? 'AutoApproved' : 'PendingReview';
 
+  // Only a request that will actually go through decide() needs a workflow —
+  // an auto-approved request is never decided, so resolving one for it would
+  // be dead weight. null (no configured workflow) is the normal case; the
+  // legacy single-level flow runs unchanged in decideLeaveRequest().
+  let workflowFields = {};
+  if (status === 'PendingReview') {
+    const workflow = await resolveApprovalWorkflow(employee, 'Leave');
+    if (workflow) {
+      workflowFields = {
+        workflow: workflow._id,
+        workflowName: workflow.name,
+        steps: workflow.steps,
+        currentStep: 0,
+      };
+    }
+  }
+
   const request = await LeaveRequest.create({
     employee: employee._id,
     leaveType: leaveType._id,
@@ -338,6 +362,7 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
       // Only 'Sick' requests ever populate this — see evaluateSick().
       payBreakdown: evaluation.payBreakdown?.length ? evaluation.payBreakdown : undefined,
     },
+    ...workflowFields,
   });
 
   await logAudit({
@@ -352,7 +377,13 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
   return request.toObject();
 }
 
-/** Staff review queue — scoped to a Coordinator's own team automatically. */
+/**
+ * Staff review queue — scoped to a Coordinator's own team automatically.
+ * A Coordinator's OWN self-submitted requests (P2-M4: staff self-submission)
+ * are included too, even though they aren't their own coordinator — without
+ * this, a Coordinator who submits their own leave would have no screen that
+ * ever shows it back to them (they have no ESS access to fall back on).
+ */
 export async function listLeaveRequests({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
@@ -360,23 +391,34 @@ export async function listLeaveRequests({ page, limit, status, employee }, actor
 
   if (actor.role === 'Coordinator') {
     const teamIds = await Employee.find({ coordinator: actor.userId }).distinct('_id');
-    const teamIdStrings = teamIds.map((teamId) => teamId.toString());
-    if (employee && !teamIdStrings.includes(employee)) {
+    const visibleIds = actor.employee ? [...teamIds, actor.employee] : teamIds;
+    const visibleIdStrings = visibleIds.map((id) => id.toString());
+    if (employee && !visibleIdStrings.includes(employee)) {
       throw new ApiError(403, 'You do not have access to this employee.');
     }
-    filter.employee = employee ?? { $in: teamIds };
+    filter.employee = employee ?? { $in: visibleIds };
   }
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     LeaveRequest.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
       .populate('decidedBy', 'name')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     LeaveRequest.countDocuments(filter),
   ]);
+  // Real, server-computed "can this viewer decide it" per row — see
+  // approvalEngine.service.js. Convenience for the UI only; decideLeaveRequest
+  // remains the actual gate.
+  const items = await annotateCanDecide(rawItems, actor, {
+    pendingStatus: 'PendingReview',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+  });
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
@@ -394,36 +436,42 @@ export async function listOwnLeaveRequests(employeeId, { page, limit, status }) 
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-/** Approve/reject a PendingReview request. Auto-approved ones are never decided — see acknowledge(). */
+/**
+ * Approve/reject a PendingReview request. Auto-approved ones are never
+ * decided — see acknowledge(). Delegates the actual step/authorization
+ * logic to the shared engine (approvalEngine.service.js): a request with no
+ * `workflow` runs the exact original single-level flow (LEGACY_DECIDE_ROLES
+ * + assertEmployeeScope, unchanged); a request WITH a workflow is decided
+ * step-by-step against real ApprovalRole membership instead.
+ */
 export async function decideLeaveRequest(id, { status, decisionNote }, actor) {
-  const request = await LeaveRequest.findById(id);
-  if (!request) throw new ApiError(404, 'Leave request not found.');
-  if (request.status !== 'PendingReview') {
-    throw new ApiError(400, 'Only requests pending review can be decided.');
-  }
-  await assertEmployeeScope(actor, request.employee);
-
-  request.status = status;
-  request.decidedBy = actor.userId;
-  request.decidedAt = new Date();
-  request.decisionNote = decisionNote;
-  await request.save();
-
-  await logAudit({
-    user: actor.userId,
-    action: `leave.request.${status.toLowerCase()}`,
-    targetType: 'LeaveRequest',
-    targetId: request._id,
-    meta: { decisionNote },
-    ip: actor.ip,
+  return decideApprovalStep({
+    Model: LeaveRequest,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'PendingReview',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    assertScope: assertEmployeeScope,
+    notFoundMessage: 'Leave request not found.',
+    auditAction: 'leave.request',
+    buildFinalNotification: (doc) => ({
+      type: 'RequestStatus',
+      title: `${doc.leaveTypeName} request ${doc.status}`,
+      body: doc.decisionNote || undefined,
+      // The requester may be a Worker (ESS) or a staff self-submitter
+      // (Coordinator/HR/Manager/Accounts, admin shell) — see
+      // notifyEmployeeUser's doc comment.
+      url: (role) => (role === 'Worker' ? '/me/leave' : '/leave'),
+    }),
+    buildStepNotification: (doc, stepIndex) => ({
+      type: 'RequestStatus',
+      title: `A ${doc.leaveTypeName} request needs your approval`,
+      body: doc.steps[stepIndex]?.label ? `Step: ${doc.steps[stepIndex].label}` : undefined,
+      url: '/leave',
+    }),
   });
-  await notifyEmployeeUser(request.employee, {
-    type: 'RequestStatus',
-    title: `${request.leaveTypeName} request ${status}`,
-    body: decisionNote || undefined,
-    url: '/me/leave',
-  });
-  return request.toObject();
 }
 
 /** Mark an auto-approved request as seen — the "notice" a coordinator/manager clears. */

@@ -74,14 +74,22 @@ export async function notifyUser(userId, { type, title, body, url, dedupeKey }) 
   return { ...notification.toObject(), wasNew: true };
 }
 
-/** Resolve the employee's own login (if one has been provisioned) and
- *  notify it. Silently does nothing if the employee has no login — most
- *  Client-type employees don't (see P2-M1), so this is the normal case,
- *  not an error. */
+/**
+ * Resolve the employee's own login (if one has been provisioned) and notify
+ * it. Silently does nothing if the employee has no login — most Client-type
+ * employees don't (see P2-M1), so this is the normal case, not an error.
+ *
+ * `data.url` may be a plain string, or a `(role) => url` function for a
+ * caller whose recipient could be either a Worker (ESS portal, `/me/...`)
+ * or a staff self-submitter (admin shell, e.g. `/leave`) — the Approval
+ * Hierarchy's staff self-submission (P2-M4+) means a request's own
+ * requester is no longer always a Worker.
+ */
 export async function notifyEmployeeUser(employeeId, data) {
-  const user = await User.findOne({ employee: employeeId }).select('_id').lean();
+  const user = await User.findOne({ employee: employeeId }).select('_id role').lean();
   if (!user) return null;
-  return notifyUser(user._id, data);
+  const url = typeof data.url === 'function' ? data.url(user.role) : data.url;
+  return notifyUser(user._id, { ...data, url });
 }
 
 export async function listNotifications(userId, { page, limit, unreadOnly }) {

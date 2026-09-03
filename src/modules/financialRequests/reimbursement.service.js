@@ -8,6 +8,13 @@ import ApiError from '../../utils/ApiError.js';
 import { signedDownloadUrl, destroyDocumentFile } from '../../middleware/upload.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+
+/** The ORIGINAL decide-route role gate for a ReimbursementClaim — preserved
+ *  exactly as the authorization used whenever no ApprovalWorkflow governs a
+ *  request (see approvalEngine.service.js's legacy path). */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
 
 function receiptFromFile(file) {
   return {
@@ -24,10 +31,20 @@ export async function submitReimbursement(employeeId, data, file, actor) {
   const employee = await Employee.findById(employeeId).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
 
+  // Unlike Leave, every reimbursement claim needs a real decision (no
+  // auto-approval concept here) — the workflow, if any, is resolved
+  // unconditionally at submission.
+  let workflowFields = {};
+  const workflow = await resolveApprovalWorkflow(employee, 'Reimbursement');
+  if (workflow) {
+    workflowFields = { workflow: workflow._id, workflowName: workflow.name, steps: workflow.steps, currentStep: 0 };
+  }
+
   const claim = await ReimbursementClaim.create({
     employee: employeeId,
     ...data,
     receipt: receiptFromFile(file),
+    ...workflowFields,
   });
   await logAudit({
     user: actor.userId,
@@ -93,48 +110,65 @@ export async function cancelReimbursement(employeeId, id, actor) {
   });
 }
 
-export async function listReimbursements({ page, limit, status, employee }) {
+/**
+ * Staff review queue. Coordinator is NOT part of the financial-requests
+ * review circle (unlike Leave) — now that Coordinators can self-submit
+ * (P2-M4+), they may see this list too, but scoped to ONLY their own
+ * claims — never the company-wide view the original 4 reviewer roles get.
+ */
+export async function listReimbursements({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
   if (employee) filter.employee = employee;
-  const [items, total] = await Promise.all([
+
+  if (actor?.role === 'Coordinator') {
+    if (employee && employee !== actor.employee) {
+      throw new ApiError(403, 'You do not have access to this employee.');
+    }
+    filter.employee = actor.employee;
+  }
+
+  const [rawItems, total] = await Promise.all([
     ReimbursementClaim.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     ReimbursementClaim.countDocuments(filter),
   ]);
+  const items = actor
+    ? await annotateCanDecide(rawItems, actor, { pendingStatus: 'Pending', legacyAllowedRoles: LEGACY_DECIDE_ROLES })
+    : rawItems;
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export async function decideReimbursement(id, { status, decisionNote }, actor) {
-  const claim = await ReimbursementClaim.findById(id);
-  if (!claim) throw new ApiError(404, 'Reimbursement claim not found.');
-  if (claim.status !== 'Pending') throw new ApiError(400, 'Only a pending claim can be decided.');
-
-  claim.status = status;
-  claim.decidedBy = actor.userId;
-  claim.decidedAt = new Date();
-  claim.decisionNote = decisionNote;
-  await claim.save();
-
-  await logAudit({
-    user: actor.userId,
-    action: `reimbursement.${status.toLowerCase()}`,
-    targetType: 'ReimbursementClaim',
-    targetId: claim._id,
-    meta: { decisionNote },
-    ip: actor.ip,
+  return decideApprovalStep({
+    Model: ReimbursementClaim,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    notFoundMessage: 'Reimbursement claim not found.',
+    auditAction: 'reimbursement',
+    buildFinalNotification: (doc) => ({
+      type: 'RequestStatus',
+      title: `Reimbursement claim ${doc.status.toLowerCase()}`,
+      body: doc.decisionNote || undefined,
+      url: (role) => (role === 'Worker' ? '/me/requests' : '/financial-requests'),
+    }),
+    buildStepNotification: () => ({
+      type: 'RequestStatus',
+      title: 'A reimbursement claim needs your approval',
+      url: '/financial-requests',
+    }),
   });
-  await notifyEmployeeUser(claim.employee, {
-    type: 'RequestStatus',
-    title: `Reimbursement claim ${status.toLowerCase()}`,
-    body: decisionNote || undefined,
-    url: '/me/requests',
-  });
-  return claim.toObject();
 }
 
 export async function markReimbursementPaid(id, actor) {

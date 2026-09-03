@@ -39,9 +39,43 @@ const advanceSchema = new mongoose.Schema(
     repaymentMonths: { type: Number, min: 1, max: 24, default: 1 },
 
     status: { type: String, enum: ADVANCE_STATUSES, default: 'Pending' },
+    // decidedBy/decidedAt/decisionNote mean "the FINAL decision only" once a
+    // workflow governs this request (see approvals/approvalEngine.service.js)
+    // — unchanged shape/meaning on the legacy (no-workflow) path.
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     decidedAt: { type: Date, default: null },
     decisionNote: { type: String, trim: true, maxlength: 500 },
+
+    // Configurable Approval Hierarchy (post-Phase-3) — see
+    // leaveRequest.model.js's identical fields for the full rationale.
+    workflow: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalWorkflow', default: null },
+    workflowName: { type: String, default: null },
+    steps: {
+      type: [
+        {
+          label: String,
+          roles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }],
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
+    currentStep: { type: Number, default: 0 },
+    approvalTrail: {
+      type: [
+        {
+          step: Number,
+          approvalRole: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole', default: null },
+          viaAdminOverride: Boolean,
+          approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          decision: { type: String, enum: ['Approved', 'Rejected'] },
+          note: String,
+          decidedAt: Date,
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
 
     repayments: { type: [repaymentSchema], default: [] },
   },

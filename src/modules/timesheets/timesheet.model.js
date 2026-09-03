@@ -48,9 +48,45 @@ const timesheetSchema = new mongoose.Schema(
     status: { type: String, enum: TIMESHEET_STATUSES, default: 'Submitted' },
     notes: { type: String, trim: true, maxlength: 500 },
 
+    // decidedBy/decidedAt/decisionNote mean "the FINAL decision only" once a
+    // workflow governs this request (see approvals/approvalEngine.service.js)
+    // — unchanged shape/meaning on the legacy (no-workflow) path.
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     decidedAt: { type: Date, default: null },
     decisionNote: { type: String, trim: true, maxlength: 500 },
+
+    // Configurable Approval Hierarchy (post-Phase-3) — see
+    // leaveRequest.model.js's identical fields for the full rationale.
+    // Re-resolved on every (re)submission, including a resubmission after
+    // Rejection — see timesheet.service.js's submitTimesheet().
+    workflow: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalWorkflow', default: null },
+    workflowName: { type: String, default: null },
+    steps: {
+      type: [
+        {
+          label: String,
+          roles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }],
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
+    currentStep: { type: Number, default: 0 },
+    approvalTrail: {
+      type: [
+        {
+          step: Number,
+          approvalRole: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole', default: null },
+          viaAdminOverride: Boolean,
+          approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          decision: { type: String, enum: ['Approved', 'Rejected'] },
+          note: String,
+          decidedAt: Date,
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
   },
   { timestamps: true }
 );

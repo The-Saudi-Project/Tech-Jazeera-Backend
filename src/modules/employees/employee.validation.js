@@ -126,6 +126,10 @@ const employeeObjectSchema = z
     // types (every 'Own' employee has one; a 'Client' employee may have one
     // alongside or instead of a coordinator). Validated in the service.
     manager: nullableObjectId('manager'),
+    // Configurable Approval Hierarchy: overrides the company-wide default
+    // ApprovalWorkflow for this employee's requests. "" clears it (null),
+    // not "leave unchanged" — same rule as coordinator/manager/weeklyOffDay.
+    approvalWorkflow: nullableObjectId('approval workflow'),
     // NOTE: currentClient / currentSite are deliberately absent — they are set
     // by the deployment workflow (M6), and unknown keys are stripped by Zod,
     // so a hand-crafted request can't smuggle an assignment through this form.

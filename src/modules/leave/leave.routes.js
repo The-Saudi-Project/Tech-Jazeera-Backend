@@ -18,6 +18,7 @@ import {
   listLeaveTypesSchema,
   leaveTypeIdParamSchema,
   listLeaveRequestsSchema,
+  submitLeaveRequestSchema,
   decideLeaveRequestSchema,
   leaveRequestIdParamSchema,
 } from './leave.validation.js';
@@ -54,9 +55,24 @@ router.get(
   validate({ query: listLeaveRequestsSchema }),
   asyncHandler(leaveController.list)
 );
+// A staff member submitting their OWN leave request (Coordinator/HR/Manager/
+// Accounts) — the self-submission gap the Approval Hierarchy work filled.
+// Admin has no Employee record and gets a clear 400 from the controller.
+router.post(
+  '/leave',
+  requireStaff,
+  validate({ body: submitLeaveRequestSchema }),
+  asyncHandler(leaveController.submit)
+);
+// requireStaff (not the original 4-role list): once ApprovalRole membership
+// is decoupled from User.role, an Admin could legitimately put an Accounts
+// user into a workflow step — the shared engine (approvalEngine.service.js)
+// is the REAL authorization now; this just confirms "some staff member is
+// asking." A request not yet on a workflow still enforces the original
+// Admin/Manager/HR/Coordinator gate itself, inside the engine's legacy path.
 router.patch(
   '/leave/:id/decide',
-  requireRoles('Admin', 'Manager', 'HR', 'Coordinator'),
+  requireStaff,
   validate({ params: leaveRequestIdParamSchema, body: decideLeaveRequestSchema }),
   asyncHandler(leaveController.decide)
 );

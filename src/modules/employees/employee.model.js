@@ -115,6 +115,15 @@ const employeeSchema = new mongoose.Schema(
     // alongside or instead of a coordinator. Referential integrity (must be
     // Admin or Manager) is checked in the service layer, same as coordinator.
     manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    // Configurable Approval Hierarchy (post-Phase-3): which ApprovalWorkflow
+    // governs THIS employee's Leave/SalaryAdvance/Reimbursement/Timesheet
+    // requests, overriding the company-wide default for each type (see
+    // ApprovalWorkflow.appliesTo and approvals.service.js's
+    // resolveApprovalWorkflow). null = no override — use the company
+    // default if one exists, otherwise the original single-level flow.
+    // Referential integrity (must be a real, active workflow) is checked in
+    // the service layer, same as coordinator/manager above.
+    approvalWorkflow: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalWorkflow', default: null },
     // Who created this record — null for records predating this field. Lets
     // Admin/Manager/HR see, at a glance, which employees a Coordinator added
     // themselves (self-service, no approval — see docs/PHASE2-PLAN.md).
