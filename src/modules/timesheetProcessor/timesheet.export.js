@@ -33,7 +33,13 @@ const HEADERS = [
 const MANUAL_HEADERS = ['REMARKS', 'APPROVED'];
 const WIDTHS = [20, 10, 9, 9, 10, 10, 12, 10, 15, 11, 12];
 
-/** Status → font color, so problem days read at a glance. */
+/**
+ * Status → font color, so problem days read at a glance. Present/Overtime/
+ * Deficient/Single Punch/No Attendance/Holiday come from the Timesheet
+ * Processor (device-log) report; Absent/Leave/Sick/Off come from the real
+ * Attendance-based monthly report (monthlyReport.service.js) — the same
+ * renderer serves both, so both vocabularies live in one map.
+ */
 const STATUS_COLOR = {
   Present: 'FF16A34A',
   Overtime: 'FFB45309',
@@ -42,6 +48,10 @@ const STATUS_COLOR = {
   'No Attendance': MUTED,
   Holiday: 'FF0D9488', // teal
   'Holiday (Worked)': 'FFB45309', // amber, like overtime
+  Absent: 'FFDC2626', // red, same family as Deficient
+  Leave: 'FF0D9488', // teal, same family as Holiday — an excused day off
+  Sick: 'FF0D9488', // teal, same family as Holiday — an excused day off
+  Off: MUTED, // gray, same family as No Attendance — a neutral non-working day
 };
 
 /**
@@ -158,7 +168,11 @@ export async function buildTimesheetXlsx(result, logo = null) {
   ws.getCell(r, 1).font = { bold: true, size: 12, color: { argb: INK } };
   r += 1;
 
-  const summaryLines = [
+  // Callers with a different set of statuses (e.g. the real-attendance
+  // monthly report's Absent/Leave/Sick/Off, vs this device-log report's
+  // Single Punch/No Attendance) pass their own summaryLines; otherwise this
+  // is the original 9-line Processor summary, unchanged.
+  const summaryLines = result.summaryLines ?? [
     ['Working Days', String(s.workingDays)],
     ['Holidays', String(s.holidayDays)],
     ['Present Days', String(s.presentDays)],

@@ -18,6 +18,7 @@ import {
   bulkApproveTimesheetSchema,
   listTimesheetsSchema,
   timesheetIdParamSchema,
+  generateMonthlyReportSchema,
 } from './timesheet.validation.js';
 import * as timesheetController from './timesheet.controller.js';
 
@@ -37,6 +38,13 @@ router.post(
   '/bulk-approve',
   validate({ body: bulkApproveTimesheetSchema }),
   asyncHandler(timesheetController.bulkApprove)
+);
+// Beyond requireStaff above, the controller itself checks "Admin or a real
+// Approval Role member" — see generateMonthlyReport's doc comment.
+router.post(
+  '/monthly-report',
+  validate({ body: generateMonthlyReportSchema }),
+  asyncHandler(timesheetController.generateMonthlyReport)
 );
 
 export default router;

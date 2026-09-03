@@ -6,10 +6,34 @@
 import CompanySettings from './companySettings.model.js';
 import { deleteLogoMedia } from './logo.upload.js';
 import { logAudit } from '../audit/audit.service.js';
+import logger from '../../config/logger.js';
 
 export async function getCompanySettings() {
   const settings = await CompanySettings.findOne().lean();
   return settings ?? { logoUrl: null };
+}
+
+/**
+ * Fetch the configured logo's actual bytes, ready to embed via exceljs
+ * (which needs a buffer, not a URL) — shared by every Excel export that
+ * brands itself with the company logo (Timesheet Processor, the real-
+ * attendance monthly report). Uploaded as PNG unconditionally (see
+ * logo.upload.js), so the extension is always known. Returns null — never
+ * throws — if no logo is configured, or if the fetch fails: a transient
+ * Cloudinary hiccup should degrade to "no logo" on export, not block
+ * someone from getting a payroll-critical report out.
+ */
+export async function getLogoForEmbedding() {
+  const settings = await getCompanySettings();
+  if (!settings.logoUrl) return null;
+  try {
+    const upstream = await fetch(settings.logoUrl);
+    if (!upstream.ok) throw new Error(`status ${upstream.status}`);
+    return { buffer: Buffer.from(await upstream.arrayBuffer()), extension: 'png' };
+  } catch (err) {
+    logger.warn(`[companySettings] failed to fetch logo for embedding: ${err.message}`);
+    return null;
+  }
 }
 
 export async function setLogo(logoUrl, actor) {

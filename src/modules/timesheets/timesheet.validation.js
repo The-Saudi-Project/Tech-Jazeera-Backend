@@ -36,3 +36,9 @@ export const listMyTimesheetsSchema = z.object({
 });
 
 export const timesheetIdParamSchema = z.object({ id });
+
+export const generateMonthlyReportSchema = z.object({
+  employeeId: id,
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+});
