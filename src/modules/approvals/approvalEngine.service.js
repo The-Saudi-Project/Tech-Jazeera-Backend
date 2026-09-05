@@ -12,6 +12,7 @@
  * company-wide default via ApprovalWorkflow.appliesTo).
  */
 import ApprovalRole from './approvalRole.model.js';
+import User from '../auth/user.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyUser, notifyEmployeeUser } from '../notifications/notification.service.js';
@@ -87,6 +88,41 @@ export async function membersOfRoles(roleIds) {
   const ids = new Set();
   for (const role of roles) for (const memberId of role.members) ids.add(memberId.toString());
   return [...ids];
+}
+
+/**
+ * Notify whoever should review a request the moment it's SUBMITTED — the
+ * missing counterpart to decideApprovalStep's step-advancement notification.
+ * That one only ever fires when an intermediate step approves and hands off
+ * to the next step's pool; nothing told the very first reviewer(s) — the
+ * common case, most requests have exactly one step — that a new request
+ * existed at all. A requester's already-open review queue had no way to
+ * learn about it short of a manual refresh landing after enough time had
+ * passed for the page's own cache to go stale.
+ *
+ * @param {object} doc                  the just-created/just-resubmitted request (workflow fields already set, or null)
+ * @param {(doc:object, stepIndex:number) => {type:string,title:string,body?:string,url?:string}} buildStepNotification  same builder decideApprovalStep's step-advancement path uses — reuse it rather than writing the text twice
+ * @param {string[]} legacyAllowedRoles User.role values eligible to decide when doc.workflow is null
+ * @param {string[]} [extraUserIds]     additional specific users to notify on the legacy path — e.g. Leave's employee.coordinator, who isn't reachable by role alone (only THEIR own coordinator may decide, not every Coordinator company-wide)
+ */
+export async function notifySubmission(doc, buildStepNotification, legacyAllowedRoles, extraUserIds = []) {
+  if (!buildStepNotification) return;
+  const stepIndex = doc.currentStep ?? 0;
+  const notification = buildStepNotification(doc, stepIndex);
+
+  let userIds;
+  if (doc.workflow) {
+    userIds = await membersOfRoles(doc.steps?.[stepIndex]?.roles);
+  } else {
+    const roleUsers = legacyAllowedRoles?.length
+      ? await User.find({ role: { $in: legacyAllowedRoles }, isActive: true }).select('_id').lean()
+      : [];
+    const ids = new Set(roleUsers.map((u) => u._id.toString()));
+    for (const id of extraUserIds) ids.add(id.toString());
+    userIds = [...ids];
+  }
+
+  await Promise.all(userIds.map((userId) => notifyUser(userId, notification)));
 }
 
 /**

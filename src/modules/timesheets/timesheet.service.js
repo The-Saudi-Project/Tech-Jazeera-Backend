@@ -17,7 +17,7 @@ import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
-import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -25,6 +25,16 @@ const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
  *  as the authorization used whenever no ApprovalWorkflow governs a request
  *  (see approvalEngine.service.js's legacy path). */
 const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
+
+/** Shared by submitTimesheet (notifySubmission) and decideTimesheet
+ *  (buildStepNotification) so the text can't drift between them. */
+function buildTimesheetStepNotification() {
+  return {
+    type: 'RequestStatus',
+    title: 'A timesheet needs your approval',
+    url: '/timesheets',
+  };
+}
 
 // Labor Law Article 98: 8 hours/day, 48 hours/week — the fixed statutory
 // normal week used whenever a timesheet's week doesn't overlap a configured
@@ -148,7 +158,9 @@ export async function submitTimesheet(employeeId, data, actor) {
     meta: { employeeId: employee.employeeId, periodStart: periodStart.toISOString().slice(0, 10), totalHours: totals.totalHours },
     ip: actor.ip,
   });
-  return timesheet.toObject();
+  const plain = timesheet.toObject();
+  await notifySubmission(plain, buildTimesheetStepNotification, LEGACY_DECIDE_ROLES);
+  return plain;
 }
 
 export async function listOwnTimesheets(employeeId, { page, limit }) {
@@ -203,11 +215,7 @@ export async function decideTimesheet(id, { status, decisionNote }, actor) {
     notFoundMessage: 'Timesheet not found.',
     auditAction: 'timesheet',
     buildFinalNotification: buildTimesheetFinalNotification,
-    buildStepNotification: () => ({
-      type: 'RequestStatus',
-      title: 'A timesheet needs your approval',
-      url: '/timesheets',
-    }),
+    buildStepNotification: buildTimesheetStepNotification,
   });
 }
 

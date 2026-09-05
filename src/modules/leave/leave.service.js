@@ -17,12 +17,24 @@ import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
-import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
 
 /** The ORIGINAL decide-route role gate for Leave — preserved exactly as the
  *  authorization used whenever no ApprovalWorkflow governs a request (see
  *  approvalEngine.service.js's legacy path). */
 const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR', 'Coordinator'];
+
+/** Shared by submitLeaveRequest (notifySubmission) and decideLeaveRequest
+ *  (buildStepNotification) so the "needs your approval" text can never drift
+ *  between a request's first step and a later one. */
+function buildLeaveStepNotification(doc, stepIndex) {
+  return {
+    type: 'RequestStatus',
+    title: `A ${doc.leaveTypeName} request needs your approval`,
+    body: doc.steps?.[stepIndex]?.label ? `Step: ${doc.steps[stepIndex].label}` : undefined,
+    url: '/leave',
+  };
+}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -374,7 +386,17 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
     ip: actor.ip,
   });
 
-  return request.toObject();
+  const plain = request.toObject();
+  // An AutoApproved request has nobody left to notify — it's already done.
+  if (status === 'PendingReview') {
+    await notifySubmission(
+      plain,
+      buildLeaveStepNotification,
+      LEGACY_DECIDE_ROLES,
+      employee.coordinator ? [employee.coordinator] : []
+    );
+  }
+  return plain;
 }
 
 /**
@@ -465,12 +487,7 @@ export async function decideLeaveRequest(id, { status, decisionNote }, actor) {
       // notifyEmployeeUser's doc comment.
       url: (role) => (role === 'Worker' ? '/me/leave' : '/leave'),
     }),
-    buildStepNotification: (doc, stepIndex) => ({
-      type: 'RequestStatus',
-      title: `A ${doc.leaveTypeName} request needs your approval`,
-      body: doc.steps[stepIndex]?.label ? `Step: ${doc.steps[stepIndex].label}` : undefined,
-      url: '/leave',
-    }),
+    buildStepNotification: buildLeaveStepNotification,
   });
 }
 

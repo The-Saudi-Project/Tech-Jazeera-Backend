@@ -9,12 +9,22 @@ import { signedDownloadUrl, destroyDocumentFile } from '../../middleware/upload.
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
-import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
 
 /** The ORIGINAL decide-route role gate for a ReimbursementClaim — preserved
  *  exactly as the authorization used whenever no ApprovalWorkflow governs a
  *  request (see approvalEngine.service.js's legacy path). */
 const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
+
+/** Shared by submitReimbursement (notifySubmission) and decideReimbursement
+ *  (buildStepNotification) so the text can't drift between them. */
+function buildReimbursementStepNotification() {
+  return {
+    type: 'RequestStatus',
+    title: 'A reimbursement claim needs your approval',
+    url: '/financial-requests',
+  };
+}
 
 function receiptFromFile(file) {
   return {
@@ -54,7 +64,9 @@ export async function submitReimbursement(employeeId, data, file, actor) {
     meta: { employeeId: employee.employeeId, category: data.category, amount: data.amount },
     ip: actor.ip,
   });
-  return claim.toObject();
+  const plain = claim.toObject();
+  await notifySubmission(plain, buildReimbursementStepNotification, LEGACY_DECIDE_ROLES);
+  return plain;
 }
 
 export async function listOwnReimbursements(employeeId, { page, limit, status }) {
@@ -163,11 +175,7 @@ export async function decideReimbursement(id, { status, decisionNote }, actor) {
       body: doc.decisionNote || undefined,
       url: (role) => (role === 'Worker' ? '/me/requests' : '/financial-requests'),
     }),
-    buildStepNotification: () => ({
-      type: 'RequestStatus',
-      title: 'A reimbursement claim needs your approval',
-      url: '/financial-requests',
-    }),
+    buildStepNotification: buildReimbursementStepNotification,
   });
 }
 

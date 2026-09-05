@@ -8,7 +8,7 @@ import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
-import { decideApprovalStep, annotateCanDecide } from '../approvals/approvalEngine.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -16,6 +16,16 @@ const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
  *  exactly as the authorization used whenever no ApprovalWorkflow governs a
  *  request (see approvalEngine.service.js's legacy path). */
 const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
+
+/** Shared by submitAdvance (notifySubmission) and decideAdvance
+ *  (buildStepNotification) so the text can't drift between them. */
+function buildAdvanceStepNotification() {
+  return {
+    type: 'RequestStatus',
+    title: 'A salary advance request needs your approval',
+    url: '/financial-requests',
+  };
+}
 
 /** Adds the derived repayment figures every caller needs — never stored,
  *  always computed fresh from the repayments ledger so it can't drift. */
@@ -54,7 +64,9 @@ export async function submitAdvance(employeeId, data, actor) {
     meta: { employeeId: employee.employeeId, amount: data.amount },
     ip: actor.ip,
   });
-  return withBalance(advance.toObject());
+  const plain = advance.toObject();
+  await notifySubmission(plain, buildAdvanceStepNotification, LEGACY_DECIDE_ROLES);
+  return withBalance(plain);
 }
 
 export async function listOwnAdvances(employeeId, { page, limit, status }) {
@@ -141,11 +153,7 @@ export async function decideAdvance(id, { status, decisionNote }, actor) {
       body: doc.decisionNote || undefined,
       url: (role) => (role === 'Worker' ? '/me/requests' : '/financial-requests'),
     }),
-    buildStepNotification: () => ({
-      type: 'RequestStatus',
-      title: 'A salary advance request needs your approval',
-      url: '/financial-requests',
-    }),
+    buildStepNotification: buildAdvanceStepNotification,
   });
   return withBalance(advance);
 }
