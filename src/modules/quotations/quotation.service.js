@@ -61,6 +61,7 @@ export async function createQuotation(data, actor) {
     ...data,
     quotationNumber: await newQuotationNumber(),
     clientName: client.companyName,
+    createdBy: actor.userId,
     ...computeTotals(data.lineItems),
   });
   await logAudit({

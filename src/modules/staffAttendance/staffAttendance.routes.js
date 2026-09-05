@@ -1,9 +1,11 @@
 /**
  * Staff self-attendance routes.
  *
- * Self-service (punch, own history) is Coordinator/HR/Accounts only — Admin
- * and Manager are exempt from personal clock-in by design; Workers already
- * have their own equivalent via Employee-based Attendance + the ESS portal.
+ * Self-service (punch, own history) is Coordinator/HR/Accounts/Manager —
+ * Admin is exempt from personal clock-in by design; Workers already have
+ * their own equivalent via Employee-based Attendance + the ESS portal.
+ * Manager was added so a BDM-titled login (the generic Manager role) can
+ * mark their own attendance the same way the rest of internal staff do.
  * Both resolve against req.user.id, never a client-supplied user id — same
  * self-service guarantee as the /api/me module for Workers.
  *
@@ -27,7 +29,7 @@ router.use(requireAuth);
 
 router.post(
   '/punch',
-  requireRoles('Coordinator', 'HR', 'Accounts'),
+  requireRoles('Coordinator', 'HR', 'Accounts', 'Manager'),
   validate({ body: selfMarkSchema }),
   asyncHandler(staffAttendanceController.punch)
 );
@@ -39,7 +41,7 @@ router.get(
 );
 router.get(
   '/',
-  requireRoles('Coordinator', 'HR', 'Accounts'),
+  requireRoles('Coordinator', 'HR', 'Accounts', 'Manager'),
   validate({ query: listMyAttendanceSchema }),
   asyncHandler(staffAttendanceController.listMine)
 );

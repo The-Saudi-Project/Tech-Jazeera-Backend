@@ -24,7 +24,13 @@ import Attendance from '../attendance/attendance.model.js';
 import PayrollRun from '../payroll/payrollRun.model.js';
 import Invoice from '../invoices/invoice.model.js';
 import Expense from '../expenses/expense.model.js';
+import LeaveRequest from '../leave/leaveRequest.model.js';
+import Timesheet from '../timesheets/timesheet.model.js';
+import SalaryAdvance from '../financialRequests/advance.model.js';
+import ReimbursementClaim from '../financialRequests/reimbursement.model.js';
+import Mobilisation from '../mobilisations/mobilisation.model.js';
 import { toUtcDay } from '../attendance/attendance.service.js';
+import { annotateCanDecide } from '../approvals/approvalEngine.service.js';
 
 export const EXPIRY_WARNING_DAYS = 30;
 const TREND_MONTHS = 6;
@@ -121,6 +127,36 @@ export const IDENTITY_DOCS = [
 const daysUntil = (date) => Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
 
 /**
+ * "Pending on me" across every approval-hierarchy-integrated request type —
+ * the dashboard action list a decider (Manager/HR/Accounts/Coordinator/Admin)
+ * actually needs, instead of a company-wide draft count that isn't theirs to
+ * act on. Reuses annotateCanDecide (the same real authorization check the
+ * review-queue pages use) per module rather than re-deriving the workflow/
+ * legacy-role logic a third time — one extra ApprovalRole-membership query
+ * per module, cheap at this data volume.
+ */
+const PENDING_ACTION_MODULES = [
+  { label: 'Leave requests', url: '/leave', Model: LeaveRequest, pendingStatus: 'PendingReview', legacyAllowedRoles: ['Admin', 'Manager', 'HR', 'Coordinator'] },
+  { label: 'Timesheets', url: '/timesheets', Model: Timesheet, pendingStatus: 'Submitted', legacyAllowedRoles: ['Admin', 'Manager', 'HR'] },
+  { label: 'Salary advances', url: '/financial-requests', Model: SalaryAdvance, pendingStatus: 'Pending', legacyAllowedRoles: ['Admin', 'Manager', 'HR'] },
+  { label: 'Reimbursements', url: '/financial-requests', Model: ReimbursementClaim, pendingStatus: 'Pending', legacyAllowedRoles: ['Admin', 'Manager', 'HR'] },
+  { label: 'Mobilisations', url: '/mobilisations', Model: Mobilisation, pendingStatus: 'PendingReview', legacyAllowedRoles: ['Admin'] },
+];
+
+async function getMyPendingActions(actor) {
+  if (!actor?.userId) return [];
+  const perModule = await Promise.all(
+    PENDING_ACTION_MODULES.map(async ({ label, url, Model, pendingStatus, legacyAllowedRoles }) => {
+      const items = await Model.find({ status: pendingStatus }).select('workflow currentStep steps status').lean();
+      if (items.length === 0) return { label, url, count: 0 };
+      const annotated = await annotateCanDecide(items, actor, { pendingStatus, legacyAllowedRoles });
+      return { label, url, count: annotated.filter((i) => i.canDecideCurrentStep).length };
+    })
+  );
+  return perModule.filter((m) => m.count > 0);
+}
+
+/**
  * @param {object} [opts]
  * @param {number} [opts.thresholdDays] override the 30-day alert window (P2-M2,
  *   customizable per viewer — mirrors the same param on the employee list)
@@ -149,6 +185,16 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
   // once, ahead of the parallel batch below, so every filter that needs it
   // shares the same scope.
   const isCoordinator = actor?.role === 'Coordinator';
+  // A Manager (the generic login a BDM-titled person holds) keeps their own
+  // company-wide operational counts (deployed/workers/clients/workforce +
+  // quotations BY STATUS) but loses the money-figure sections (Pipeline,
+  // Profit, Recent Activity) — those are Admin/Executive territory (GM/COO/
+  // Marketing/Financial Manager, per the org chart, all log in as Executive
+  // today). "Pending quotations" becomes personal (their own Drafts) instead
+  // of the company-wide count, since a Manager has no real per-item approval
+  // step over quotations they didn't author.
+  const isManager = actor?.role === 'Manager';
+  const hideFinance = isCoordinator || isManager;
   const teamIds = isCoordinator
     ? await Employee.find({ coordinator: actor.userId, type: { $in: WORKFORCE_TYPES } }).distinct('_id')
     : null;
@@ -183,14 +229,16 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
     pendingClientApprovals,
     markedToday,
     profitOverview,
+    personalPendingQuotations,
+    myPendingActions,
   ] = await Promise.all([
     Deployment.countDocuments(deploymentFilter),
     Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
-    // Payroll — skipped entirely for a Coordinator, see the doc comment above.
-    // type: 'Client' — this figure is the supplied workforce's pay, not
-    // internal staff salaries (an Own-type employee's salary, if ever set,
-    // must never silently flow into this).
-    isCoordinator
+    // Payroll — skipped for a Coordinator or a Manager (BDM), see hideFinance
+    // above. type: 'Client' — this figure is the supplied workforce's pay,
+    // not internal staff salaries (an Own-type employee's salary, if ever
+    // set, must never silently flow into this).
+    hideFinance
       ? Promise.resolve([])
       : Employee.aggregate([
           { $match: { status: { $ne: 'Exited' }, type: 'Client' } },
@@ -215,21 +263,30 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
       .populate('owner', 'fullName companyName')
       .limit(50)
       .lean(),
-    // Recent activity — skipped entirely for a Coordinator, see the doc comment above.
-    isCoordinator
+    // Recent activity — skipped for a Coordinator or a Manager, see hideFinance above.
+    hideFinance
       ? Promise.resolve([])
       : AuditLog.find({}).sort({ createdAt: -1 }).limit(8).populate('user', 'name').lean(),
-    // Company-wide, same visibility line as recentActivity above — a
-    // Coordinator doesn't see this either (they'd only ever see their own
-    // submissions' status on the client itself, not a company-wide count).
+    // Company-wide, unrelated to the finance visibility line above — a
+    // Coordinator doesn't see this (they'd only ever see their own
+    // submissions' status on the client itself, not a company-wide count),
+    // but a Manager still does — client approvals are BDM territory.
     isCoordinator ? Promise.resolve(null) : Client.countDocuments({ approvalStatus: 'Pending' }),
     // "Marked today" — a workforce-activity count, not a financial figure, so
     // (unlike payroll/revenue/activity above) it stays visible to a
     // Coordinator, scoped to their own team via markedTodayFilter.
     Attendance.countDocuments(markedTodayFilter),
-    // P2-M8 real profit — skipped entirely for a Coordinator, same visibility
-    // line as payroll/revenue above.
-    isCoordinator ? Promise.resolve(null) : getProfitOverview(month),
+    // P2-M8 real profit — skipped for a Coordinator or a Manager, same
+    // visibility line as payroll/revenue above.
+    hideFinance ? Promise.resolve(null) : getProfitOverview(month),
+    // A Manager's "pending quotations" is personal (their own Drafts) — they
+    // have no per-item approval step over a quotation they didn't author, so
+    // the company-wide Draft count isn't theirs to act on.
+    isManager ? Quotation.countDocuments({ status: 'Draft', createdBy: actor.userId }) : Promise.resolve(null),
+    // "Pending on me" across every workflow-integrated request type — see
+    // getMyPendingActions above. Computed for every viewer (Admin included);
+    // empty array where nothing is actionable.
+    getMyPendingActions(actor),
   ]);
 
   // Workforce by status
@@ -285,24 +342,28 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
       onLeave: workforceByStatus['On Leave'],
       totalWorkers,
       activeClients,
-      pendingQuotations: teamIds ? null : quotationsByStatus.Draft,
+      pendingQuotations: isManager ? personalPendingQuotations : teamIds ? null : quotationsByStatus.Draft,
       expiringSoon: expiringDocuments.length,
       pendingClientApprovals,
       markedToday,
     },
     finance: {
-      approvedRevenue: isCoordinator ? null : approvedRevenue,
-      pendingRevenue: isCoordinator ? null : pendingRevenue,
-      monthlyPayroll: isCoordinator ? null : (payrollAgg[0]?.total ?? 0),
+      approvedRevenue: hideFinance ? null : approvedRevenue,
+      pendingRevenue: hideFinance ? null : pendingRevenue,
+      monthlyPayroll: hideFinance ? null : (payrollAgg[0]?.total ?? 0),
       // P2-M8 — real profit for the selected month (revenue from actually
       // issued invoices, cost from a finalized payroll run and recorded
-      // expenses) plus a trailing 6-month trend. null for a Coordinator,
-      // same visibility line as the three estimates above.
+      // expenses) plus a trailing 6-month trend. null for a Coordinator or a
+      // Manager, same visibility line as the three estimates above.
       profit: profitOverview,
     },
     workforceByStatus,
     quotationsByStatus: isCoordinator ? null : quotationsByStatus,
     expiringDocuments: expiringDocuments.slice(0, 10),
-    recentActivity: isCoordinator ? null : recentActivity,
+    recentActivity: hideFinance ? null : recentActivity,
+    // "Pending on me" — see getMyPendingActions. Always an array (never null),
+    // same "hidden entirely at zero" pattern the client already applies to
+    // pendingClientApprovals.
+    myPendingActions,
   };
 }

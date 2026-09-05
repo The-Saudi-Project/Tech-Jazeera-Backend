@@ -36,6 +36,10 @@ const quotationSchema = new mongoose.Schema(
     quotationNumber: { type: String, required: true, unique: true },
     client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
     clientName: { type: String, required: true }, // snapshot for durable PDFs/history
+    // Who created it — null on quotations that predate this field. Powers a
+    // Manager's "pending quotations" dashboard stat (their own Drafts, not
+    // the company-wide count Admin/Executive see) — never backfilled.
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     date: { type: Date, default: Date.now },
     validUntil: { type: Date, default: null },
     status: { type: String, enum: QUOTATION_STATUSES, default: 'Draft' },
