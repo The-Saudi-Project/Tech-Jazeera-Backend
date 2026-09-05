@@ -1,37 +1,44 @@
 /**
  * Certificate PDF generation (pdfkit).
  *
- * DELIBERATELY MINIMAL LETTERHEAD: only the company's known trade name is
- * printed ("Al Jazeera") — no CR number, address, or named signatory. This
- * app has no verified source for those (no Settings/company-profile record
- * exists yet — see docs/PHASE2-PLAN.md's standing rule against inventing
- * CR/VAT/IBAN-type company details). The blank signature line at the
- * bottom is normal for this kind of letter, not a placeholder — a human
- * signs or stamps it. See docs/P3-D-notes.md for the exact fields still
- * needed to complete a full company letterhead.
+ * Uses the real company letterhead + authorized signatory once Company
+ * Settings has been filled in (see companySettings/letterhead.pdf.js) —
+ * this is the exact gap flagged when this file was first written ("no
+ * Settings/company-profile record exists yet, so no CR number/signatory is
+ * invented"; see docs/P3-D-notes.md). Falls back to the original minimal
+ * header (just a generic "Company name not set" title) and a blank,
+ * unlabeled signature line when no company profile exists yet, so a
+ * certificate generated before anyone fills in the settings page still
+ * works exactly as it always did.
  */
 import PDFDocument from 'pdfkit';
+import { drawLetterhead, drawSignatoryBlock, LETTERHEAD_HEIGHT } from '../companySettings/letterhead.pdf.js';
 
 const shortDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
-function header(doc, title) {
+function header(doc, title, company, logo) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
-  doc.fontSize(16).font('Helvetica-Bold').fillColor('#111').text('Al Jazeera', left, 45);
-  doc.moveTo(left, 68).lineTo(right, 68).strokeColor('#ddd').stroke();
-  doc.fontSize(14).font('Helvetica-Bold').fillColor('#111').text(title, left, 90, { align: 'center', width: right - left });
-  doc.font('Helvetica').fontSize(10).fillColor('#666').text(`Date: ${shortDate(new Date())}`, left, 118);
-  return 150;
+  const top = company ? LETTERHEAD_HEIGHT : 0;
+  if (company) drawLetterhead(doc, company, logo);
+  doc.fontSize(14).font('Helvetica-Bold').fillColor('#111').text(title, left, top + 25, { align: 'center', width: right - left });
+  doc.font('Helvetica').fontSize(10).fillColor('#666').text(`Date: ${shortDate(new Date())}`, left, top + 53);
+  return top + 85;
 }
 
-function signatureBlock(doc, y) {
+function signatureBlock(doc, y, company) {
   const left = doc.page.margins.left;
+  if (company?.signatoryName || company?.signatoryTitle) {
+    drawSignatoryBlock(doc, company, left, y + 50, 220);
+    return;
+  }
+  // No signatory on file yet — a blank, unlabeled line for a human to sign
+  // or stamp, same as before this feature existed.
   doc.moveTo(left, y + 50).lineTo(left + 220, y + 50).strokeColor('#999').stroke();
   doc.font('Helvetica').fontSize(9).fillColor('#666').text('Authorized Signature', left, y + 55);
-  doc.text('Human Resources', left, y + 68);
 }
 
-export function buildSalaryCertificatePdf({ employee, request }) {
+export function buildSalaryCertificatePdf({ employee, request }, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -41,7 +48,7 @@ export function buildSalaryCertificatePdf({ employee, request }) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
-    let y = header(doc, 'SALARY CERTIFICATE');
+    let y = header(doc, 'SALARY CERTIFICATE', company, logo);
 
     doc.font('Helvetica').fontSize(11).fillColor('#111').text('To Whom It May Concern,', left, y);
     y += 30;
@@ -59,12 +66,12 @@ export function buildSalaryCertificatePdf({ employee, request }) {
       y += doc.heightOfString(purposeLine, { width: right - left, lineGap: 4 }) + 20;
     }
 
-    signatureBlock(doc, y);
+    signatureBlock(doc, y, company);
     doc.end();
   });
 }
 
-export function buildServiceCertificatePdf({ employee, request, exitDate }) {
+export function buildServiceCertificatePdf({ employee, request, exitDate }, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -74,7 +81,7 @@ export function buildServiceCertificatePdf({ employee, request, exitDate }) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
-    let y = header(doc, 'SERVICE CERTIFICATE');
+    let y = header(doc, 'SERVICE CERTIFICATE', company, logo);
 
     doc.font('Helvetica').fontSize(11).fillColor('#111').text('To Whom It May Concern,', left, y);
     y += 30;
@@ -95,7 +102,7 @@ export function buildServiceCertificatePdf({ employee, request, exitDate }) {
       y += doc.heightOfString(purposeLine, { width: right - left, lineGap: 4 }) + 20;
     }
 
-    signatureBlock(doc, y);
+    signatureBlock(doc, y, company);
     doc.end();
   });
 }

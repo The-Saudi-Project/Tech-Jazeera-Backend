@@ -5,6 +5,7 @@
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as payrollService from './payroll.service.js';
 import { buildPayslipPdf } from './payroll.pdf.js';
+import { getLetterheadData } from '../companySettings/companySettings.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
@@ -45,7 +46,8 @@ export async function pdf(req, res) {
 }
 
 export async function sendPayslipPdf({ run, line }, res) {
-  const buffer = await buildPayslipPdf({ run, line });
+  const { company, logo } = await getLetterheadData();
+  const buffer = await buildPayslipPdf({ run, line }, company, logo);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="Payslip-${line.employeeCode}-${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}.pdf"`);
   res.send(buffer);

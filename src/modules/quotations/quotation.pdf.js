@@ -4,6 +4,7 @@
  * from the service so the document-layout concern stays isolated.
  */
 import PDFDocument from 'pdfkit';
+import { drawLetterhead, LETTERHEAD_HEIGHT } from '../companySettings/letterhead.pdf.js';
 
 const money = (n) => `SAR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const shortDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—');
@@ -15,7 +16,9 @@ function lineAmount(li) {
   return net + net * ((li.taxRate ?? 0) / 100);
 }
 
-export function buildQuotationPdf(q) {
+/** `company`/`logo` are optional — a PDF generated before any company
+ *  profile is filled in still works, just without a letterhead. */
+export function buildQuotationPdf(q, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -25,19 +28,21 @@ export function buildQuotationPdf(q) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
+    const top = company ? LETTERHEAD_HEIGHT : 0;
+    if (company) drawLetterhead(doc, company, logo);
 
     // Header
-    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('QUOTATION', left, 45);
+    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('QUOTATION', left, top + 45);
     doc.fontSize(10).font('Helvetica').fillColor('#666');
-    doc.text(`No.  ${q.quotationNumber}`, left, 72);
-    doc.text(`Date  ${shortDate(q.date)}`, left, 86);
-    if (q.validUntil) doc.text(`Valid until  ${shortDate(q.validUntil)}`, left, 100);
-    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(q.status.toUpperCase(), right - 120, 72, { width: 120, align: 'right' });
+    doc.text(`No.  ${q.quotationNumber}`, left, top + 72);
+    doc.text(`Date  ${shortDate(q.date)}`, left, top + 86);
+    if (q.validUntil) doc.text(`Valid until  ${shortDate(q.validUntil)}`, left, top + 100);
+    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(q.status.toUpperCase(), right - 120, top + 72, { width: 120, align: 'right' });
 
     // Client block
-    doc.moveTo(left, 122).lineTo(right, 122).strokeColor('#ddd').stroke();
-    doc.fontSize(9).font('Helvetica').fillColor('#666').text('BILL TO', left, 132);
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(q.clientName, left, 145);
+    doc.moveTo(left, top + 122).lineTo(right, top + 122).strokeColor('#ddd').stroke();
+    doc.fontSize(9).font('Helvetica').fillColor('#666').text('BILL TO', left, top + 132);
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(q.clientName, left, top + 145);
 
     // Table header
     const cols = [
@@ -49,7 +54,7 @@ export function buildQuotationPdf(q) {
       { key: 'taxRate', label: 'Tax%', w: 40, align: 'right' },
       { key: 'amount', label: 'Amount', w: 90, align: 'right' },
     ];
-    let y = 180;
+    let y = top + 180;
     const drawRow = (cells, { bold = false } = {}) => {
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#111');
       let x = left;

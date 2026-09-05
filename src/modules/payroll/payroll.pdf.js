@@ -1,10 +1,11 @@
 /**
- * Payslip PDF generation (pdfkit) — mirrors the minimal-letterhead
- * discipline already established for certificate.pdf.js: just the
- * company's known trade name, no invented CR number or signatory. See
- * docs/P2-M5-notes.md.
+ * Payslip PDF generation (pdfkit) — uses the real company letterhead once
+ * Company Settings has been filled in (see companySettings/letterhead.pdf.js);
+ * falls back to the original minimal header when it hasn't, same as
+ * certificate.pdf.js. See docs/P2-M5-notes.md for why this started minimal.
  */
 import PDFDocument from 'pdfkit';
+import { drawLetterhead, LETTERHEAD_HEIGHT } from '../companySettings/letterhead.pdf.js';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -13,7 +14,9 @@ const MONTH_NAMES = [
 
 const money = (n) => `SAR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function buildPayslipPdf({ run, line }) {
+/** `company`/`logo` are optional — a payslip generated before any company
+ *  profile is filled in still works, just without a letterhead. */
+export function buildPayslipPdf({ run, line }, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -23,25 +26,29 @@ export function buildPayslipPdf({ run, line }) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
-
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#111').text('Al Jazeera', left, 45);
-    doc.moveTo(left, 68).lineTo(right, 68).strokeColor('#ddd').stroke();
-    doc.fontSize(14).font('Helvetica-Bold').text('PAYSLIP', left, 90, { align: 'center', width: right - left });
+    const top = company ? LETTERHEAD_HEIGHT : 0;
+    if (company) {
+      drawLetterhead(doc, company, logo);
+    } else {
+      doc.fontSize(16).font('Helvetica-Bold').fillColor('#111').text('Al Jazeera', left, 45);
+      doc.moveTo(left, 68).lineTo(right, 68).strokeColor('#ddd').stroke();
+    }
+    doc.fontSize(14).font('Helvetica-Bold').text('PAYSLIP', left, top + 25, { align: 'center', width: right - left });
     doc.font('Helvetica').fontSize(10).fillColor('#666').text(
       `${MONTH_NAMES[run.periodMonth - 1]} ${run.periodYear}`,
       left,
-      118,
+      top + 53,
       { align: 'center', width: right - left }
     );
 
-    doc.fontSize(9).font('Helvetica').fillColor('#666').text('EMPLOYEE', left, 150);
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(`${line.employeeName}  (${line.employeeCode})`, left, 163);
+    doc.fontSize(9).font('Helvetica').fillColor('#666').text('EMPLOYEE', left, top + 85);
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(`${line.employeeName}  (${line.employeeCode})`, left, top + 98);
     if (line.approvedHours > 0) {
       const overtimeNote = line.overtimeHours > 0 ? ` (incl. ${line.overtimeHours} overtime)` : '';
-      doc.fontSize(9).font('Helvetica').fillColor('#666').text(`Approved hours this period: ${line.approvedHours}${overtimeNote}`, left, 183);
+      doc.fontSize(9).font('Helvetica').fillColor('#666').text(`Approved hours this period: ${line.approvedHours}${overtimeNote}`, left, top + 118);
     }
 
-    let y = 210;
+    let y = top + 145;
     const row = (label, value, { bold = false } = {}) => {
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 10).fillColor('#111');
       doc.text(label, left, y, { width: 280 });

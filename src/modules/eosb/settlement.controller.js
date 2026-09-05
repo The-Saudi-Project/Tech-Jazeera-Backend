@@ -5,6 +5,7 @@
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as settlementService from './settlement.service.js';
 import { buildSettlementPdf } from './settlement.pdf.js';
+import { getLetterheadData } from '../companySettings/companySettings.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
@@ -35,7 +36,8 @@ export async function remove(req, res) {
 /** GET /api/eosb/:id/pdf — downloads the settlement as a PDF. */
 export async function pdf(req, res) {
   const settlement = await settlementService.getSettlement(req.params.id);
-  const buffer = await buildSettlementPdf(settlement);
+  const { company, logo } = await getLetterheadData();
+  const buffer = await buildSettlementPdf(settlement, company, logo);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="EOSB-${settlement.employeeCode}.pdf"`);
   res.send(buffer);

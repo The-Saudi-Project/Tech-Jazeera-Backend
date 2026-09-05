@@ -5,6 +5,7 @@
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as certificateService from './certificate.service.js';
 import { buildSalaryCertificatePdf, buildServiceCertificatePdf } from './certificate.pdf.js';
+import { getLetterheadData } from '../companySettings/companySettings.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
@@ -35,7 +36,8 @@ export async function pdf(req, res) {
 }
 
 export async function sendCertificatePdf({ request, employee, exitDate }, res) {
-  const buffer = await BUILDERS[request.type]({ employee, request, exitDate });
+  const { company, logo } = await getLetterheadData();
+  const buffer = await BUILDERS[request.type]({ employee, request, exitDate }, company, logo);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${request.type}-${employee.employeeId}.pdf"`);
   res.send(buffer);

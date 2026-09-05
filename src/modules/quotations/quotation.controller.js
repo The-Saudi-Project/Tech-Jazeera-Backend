@@ -5,6 +5,7 @@
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as quotationService from './quotation.service.js';
 import { buildQuotationPdf } from './quotation.pdf.js';
+import { getLetterheadData } from '../companySettings/companySettings.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
@@ -47,7 +48,8 @@ export async function remove(req, res) {
 /** GET /api/quotations/:id/pdf — downloads the quotation as a PDF. */
 export async function pdf(req, res) {
   const quotation = await quotationService.getQuotation(req.params.id);
-  const buffer = await buildQuotationPdf(quotation);
+  const { company, logo } = await getLetterheadData();
+  const buffer = await buildQuotationPdf(quotation, company, logo);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${quotation.quotationNumber}.pdf"`);
   res.send(buffer);

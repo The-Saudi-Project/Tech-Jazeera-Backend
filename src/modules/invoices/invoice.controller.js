@@ -5,6 +5,7 @@
 import ApiResponse from '../../utils/ApiResponse.js';
 import * as invoiceService from './invoice.service.js';
 import { buildInvoicePdf } from './invoice.pdf.js';
+import { getLetterheadData } from '../companySettings/companySettings.service.js';
 
 const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
@@ -35,7 +36,8 @@ export async function remove(req, res) {
 
 export async function pdf(req, res) {
   const invoice = await invoiceService.getInvoice(req.params.id);
-  const buffer = await buildInvoicePdf(invoice);
+  const { company, logo } = await getLetterheadData();
+  const buffer = await buildInvoicePdf(invoice, company, logo);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoiceNumber}.pdf"`);
   res.send(buffer);

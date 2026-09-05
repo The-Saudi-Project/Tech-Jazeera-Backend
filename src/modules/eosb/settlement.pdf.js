@@ -3,6 +3,7 @@
  * conventions so the two document types feel like one system.
  */
 import PDFDocument from 'pdfkit';
+import { drawLetterhead, drawSignatoryBlock, LETTERHEAD_HEIGHT } from '../companySettings/letterhead.pdf.js';
 
 const money = (n) => `SAR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const shortDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -15,7 +16,9 @@ const EXIT_REASON_LABELS = {
 
 const fraction = (f) => (f === 1 ? 'Full award' : f === 0 ? 'Forfeited (under 2 years)' : `${Math.round(f * 100)}% of the award`);
 
-export function buildSettlementPdf(s) {
+/** `company`/`logo` are optional — a PDF generated before any company
+ *  profile is filled in still works, just without a letterhead/signatory. */
+export function buildSettlementPdf(s, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -25,29 +28,31 @@ export function buildSettlementPdf(s) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
+    const top = company ? LETTERHEAD_HEIGHT : 0;
+    if (company) drawLetterhead(doc, company, logo);
 
     // Header
-    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('END OF SERVICE SETTLEMENT', left, 45);
+    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('END OF SERVICE SETTLEMENT', left, top + 45);
     doc.fontSize(10).font('Helvetica').fillColor('#666');
-    doc.text(`Computed  ${shortDate(s.createdAt)}`, left, 72);
-    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(EXIT_REASON_LABELS[s.exitReason], right - 220, 72, { width: 220, align: 'right' });
+    doc.text(`Computed  ${shortDate(s.createdAt)}`, left, top + 72);
+    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(EXIT_REASON_LABELS[s.exitReason], right - 220, top + 72, { width: 220, align: 'right' });
 
     // Employee block
-    doc.moveTo(left, 100).lineTo(right, 100).strokeColor('#ddd').stroke();
-    doc.fontSize(9).font('Helvetica').fillColor('#666').text('EMPLOYEE', left, 110);
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(`${s.employeeName}  (${s.employeeCode})`, left, 123);
+    doc.moveTo(left, top + 100).lineTo(right, top + 100).strokeColor('#ddd').stroke();
+    doc.fontSize(9).font('Helvetica').fillColor('#666').text('EMPLOYEE', left, top + 110);
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(`${s.employeeName}  (${s.employeeCode})`, left, top + 123);
 
     const infoRow = (label, value, x, y) => {
       doc.fontSize(9).font('Helvetica').fillColor('#666').text(label, x, y);
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#111').text(value, x, y + 12);
     };
-    infoRow('JOINING DATE', shortDate(s.joiningDate), left, 150);
-    infoRow('EXIT DATE', shortDate(s.exitDate), left + 150, 150);
-    infoRow('SERVICE', `${s.serviceYears} years`, left + 300, 150);
-    infoRow('MONTHLY WAGE', money(s.monthlyWage), left + 420, 150);
+    infoRow('JOINING DATE', shortDate(s.joiningDate), left, top + 150);
+    infoRow('EXIT DATE', shortDate(s.exitDate), left + 150, top + 150);
+    infoRow('SERVICE', `${s.serviceYears} years`, left + 300, top + 150);
+    infoRow('MONTHLY WAGE', money(s.monthlyWage), left + 420, top + 150);
 
     // Breakdown table
-    let y = 200;
+    let y = top + 200;
     const row = (label, value, { bold = false, note } = {}) => {
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 10).fillColor('#111');
       doc.text(label, left, y, { width: 280 });
@@ -79,7 +84,10 @@ export function buildSettlementPdf(s) {
       y += 14;
       doc.font('Helvetica-Bold').fontSize(9).fillColor('#666').text('NOTES', left, y);
       doc.font('Helvetica').fontSize(9).fillColor('#111').text(s.notes, left, y + 12, { width: right - left });
+      y = doc.y;
     }
+
+    if (company) drawSignatoryBlock(doc, company, left, y + 40, 220);
 
     doc.end();
   });

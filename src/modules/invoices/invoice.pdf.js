@@ -3,6 +3,7 @@
  * conventions, plus a payments/balance section quotations don't need.
  */
 import PDFDocument from 'pdfkit';
+import { drawLetterhead, LETTERHEAD_HEIGHT } from '../companySettings/letterhead.pdf.js';
 
 const money = (n) => `SAR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const shortDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—');
@@ -13,7 +14,9 @@ function lineAmount(li) {
   return net + net * ((li.taxRate ?? 0) / 100);
 }
 
-export function buildInvoicePdf(inv) {
+/** `company`/`logo` are optional — a PDF generated before any company
+ *  profile is filled in still works, just without a letterhead. */
+export function buildInvoicePdf(inv, company = null, logo = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 45 });
     const chunks = [];
@@ -23,18 +26,20 @@ export function buildInvoicePdf(inv) {
 
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
+    const top = company ? LETTERHEAD_HEIGHT : 0;
+    if (company) drawLetterhead(doc, company, logo);
 
-    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('INVOICE', left, 45);
+    doc.fontSize(20).font('Helvetica-Bold').fillColor('#111').text('INVOICE', left, top + 45);
     doc.fontSize(10).font('Helvetica').fillColor('#666');
-    doc.text(`No.  ${inv.invoiceNumber}`, left, 72);
-    doc.text(`Date  ${shortDate(inv.date)}`, left, 86);
-    if (inv.dueDate) doc.text(`Due  ${shortDate(inv.dueDate)}`, left, 100);
-    doc.text(`From quotation  ${inv.quotationNumber}`, left, 114);
-    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(inv.status.toUpperCase(), right - 120, 72, { width: 120, align: 'right' });
+    doc.text(`No.  ${inv.invoiceNumber}`, left, top + 72);
+    doc.text(`Date  ${shortDate(inv.date)}`, left, top + 86);
+    if (inv.dueDate) doc.text(`Due  ${shortDate(inv.dueDate)}`, left, top + 100);
+    doc.text(`From quotation  ${inv.quotationNumber}`, left, top + 114);
+    doc.font('Helvetica-Bold').fillColor('#111').fontSize(11).text(inv.status.toUpperCase(), right - 120, top + 72, { width: 120, align: 'right' });
 
-    doc.moveTo(left, 136).lineTo(right, 136).strokeColor('#ddd').stroke();
-    doc.fontSize(9).font('Helvetica').fillColor('#666').text('BILL TO', left, 146);
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(inv.clientName, left, 159);
+    doc.moveTo(left, top + 136).lineTo(right, top + 136).strokeColor('#ddd').stroke();
+    doc.fontSize(9).font('Helvetica').fillColor('#666').text('BILL TO', left, top + 146);
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#111').text(inv.clientName, left, top + 159);
 
     const cols = [
       { key: 'type', label: 'Type', w: 55, align: 'left' },
@@ -45,7 +50,7 @@ export function buildInvoicePdf(inv) {
       { key: 'taxRate', label: 'Tax%', w: 40, align: 'right' },
       { key: 'amount', label: 'Amount', w: 90, align: 'right' },
     ];
-    let y = 195;
+    let y = top + 195;
     const drawRow = (cells, { bold = false } = {}) => {
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#111');
       let x = left;
@@ -90,6 +95,14 @@ export function buildInvoicePdf(inv) {
     totalRow('Grand Total', inv.grandTotal, { bold: true });
     totalRow('Paid', inv.amountPaid);
     totalRow('Balance Due', inv.balanceDue, { bold: true });
+
+    if (inv.balanceDue > 0 && company?.bankName && company?.bankIban) {
+      y += 10;
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#666').text('PAYMENT INSTRUCTIONS', left, y);
+      y += 14;
+      doc.font('Helvetica').fontSize(9).fillColor('#111').text(`${company.bankName}  ·  IBAN ${company.bankIban}`, left, y);
+      y += 14;
+    }
 
     if (inv.payments.length > 0) {
       y += 14;
