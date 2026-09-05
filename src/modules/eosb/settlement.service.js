@@ -78,6 +78,19 @@ export async function createSettlement(data, actor) {
   if (!employee.joiningDate) throw new ApiError(400, 'This employee has no joining date on file.');
   if (!employee.salary) throw new ApiError(400, 'This employee has no salary on file.');
 
+  // An employee exits this company exactly once — a second settlement for
+  // the same person is always a mistake (a duplicate submit, or someone
+  // forgetting one already exists), never a legitimate second award. Block
+  // it instead of silently creating a duplicate; deleteSettlement is the
+  // documented way to remove a wrong one before recomputing.
+  const existing = await Settlement.findOne({ employee: employee._id }).lean();
+  if (existing) {
+    throw new ApiError(
+      409,
+      `${employee.fullName} already has a settlement on file (computed ${new Date(existing.createdAt).toLocaleDateString()}). Delete it first if this one needs to be recomputed.`
+    );
+  }
+
   const { serviceYears, eosbGross, reductionFactor, eosbNet } = computeEosb({
     joiningDate: employee.joiningDate,
     exitDate: data.exitDate,
