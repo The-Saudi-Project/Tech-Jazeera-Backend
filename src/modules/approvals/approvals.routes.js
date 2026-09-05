@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createApprovalRoleSchema,
@@ -57,8 +57,8 @@ router.patch(
   asyncHandler(approvalsController.updateWorkflow)
 );
 
-// Open to any staff member — the controller applies the real, dynamic
-// "Admin or an actual ApprovalRole member" gate itself.
-router.get('/log', requireStaff, validate({ query: approvalLogQuerySchema }), asyncHandler(approvalsController.log));
+// Open to any staff member (or Executive) — the controller applies the
+// real, dynamic "Admin or an actual ApprovalRole member" gate itself.
+router.get('/log', requireStaffOrExecutive, validate({ query: approvalLogQuerySchema }), asyncHandler(approvalsController.log));
 
 export default router;

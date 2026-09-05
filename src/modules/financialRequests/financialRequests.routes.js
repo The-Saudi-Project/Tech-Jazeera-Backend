@@ -15,15 +15,18 @@
  * because the shared approvalEngine is the REAL gate once a workflow
  * governs a request (see approvalEngine.service.js); the legacy (no
  * workflow) path still enforces the original Admin/Manager/HR-only rule
- * itself. Recording money actually changing hands (a repayment, marking a
- * claim paid) is untouched — never part of "deciding," so it keeps its
- * original Admin/Manager/HR/Accounts-only gate.
+ * itself. List/submit/decide use requireStaffOrExecutive so a GM/COO
+ * Executive login can see the queue and decide their own workflow steps —
+ * the engine re-checks real ApprovalRole membership regardless. Recording
+ * money actually changing hands (a repayment, marking a claim paid) is
+ * untouched — never part of "deciding," so it keeps its original
+ * Admin/Manager/HR/Accounts-only gate (canHandleMoney), Executive excluded.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
 import {
@@ -50,19 +53,19 @@ const canHandleMoney = requireRoles('Admin', 'Manager', 'HR', 'Accounts');
 
 router.get(
   '/advances',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ query: listAdvancesSchema }),
   asyncHandler(advanceController.list)
 );
 router.post(
   '/advances',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ body: submitAdvanceSchema }),
   asyncHandler(advanceController.submit)
 );
 router.patch(
   '/advances/:id/decide',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ params: advanceIdParamSchema, body: decideAdvanceSchema }),
   asyncHandler(advanceController.decide)
 );
@@ -75,13 +78,13 @@ router.post(
 
 router.get(
   '/reimbursements',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ query: listReimbursementsSchema }),
   asyncHandler(reimbursementController.list)
 );
 router.post(
   '/reimbursements',
-  requireStaff,
+  requireStaffOrExecutive,
   uploadSingle,
   validate({ body: submitReimbursementSchema }),
   asyncHandler(reimbursementController.submit)
@@ -99,7 +102,7 @@ router.get(
 );
 router.patch(
   '/reimbursements/:id/decide',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ params: reimbursementIdParamSchema, body: decideReimbursementSchema }),
   asyncHandler(reimbursementController.decide)
 );

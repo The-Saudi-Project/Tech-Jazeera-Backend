@@ -2,7 +2,8 @@
  * Holiday routes (P3-B).
  *
  * Read-open to any authenticated user (Workers included — the ESS Leave page
- * shows the upcoming-holidays list); only Admin/Manager/HR shape the calendar.
+ * shows the upcoming-holidays list); only Admin/HR shape the calendar — this
+ * is company calendar policy, not a day-to-day operational manager's job.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -24,19 +25,19 @@ router.use(requireAuth);
 router.get('/', validate({ query: listHolidaysSchema }), asyncHandler(holidayController.list));
 router.post(
   '/',
-  requireRoles('Admin', 'Manager', 'HR'),
+  requireRoles('Admin', 'HR'),
   validate({ body: createHolidaySchema }),
   asyncHandler(holidayController.create)
 );
 router.patch(
   '/:id',
-  requireRoles('Admin', 'Manager', 'HR'),
+  requireRoles('Admin', 'HR'),
   validate({ params: holidayIdParamSchema, body: updateHolidaySchema }),
   asyncHandler(holidayController.update)
 );
 router.delete(
   '/:id',
-  requireRoles('Admin', 'Manager', 'HR'),
+  requireRoles('Admin', 'HR'),
   validate({ params: holidayIdParamSchema }),
   asyncHandler(holidayController.remove)
 );

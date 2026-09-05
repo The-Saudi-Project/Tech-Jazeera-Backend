@@ -35,6 +35,23 @@ import mongoose from 'mongoose';
  * company-wide visibility — adding Coordinator does not narrow anyone else's
  * access.
  *
+ * `Executive` (added for GM/COO-level logins) is the opposite kind of
+ * narrowing from Coordinator: NOT in STAFF_ROLES (see rbac.js), so it is
+ * denied every CRUD module by default — the same deny-by-default posture as
+ * Worker/Staff, not an opt-out from an ever-growing role list. It is then
+ * explicitly allow-listed, one route at a time, into read + decide access on
+ * the request types the Configurable Approval Hierarchy actually routes to
+ * senior leadership (Leave/Timesheet/SalaryAdvance/Reimbursement, the
+ * Approval Log, and the company Dashboard) via `requireStaffOrExecutive`.
+ * Real authorization for *deciding* any specific item still comes from
+ * ApprovalRole membership exactly as it does for every other role — this
+ * role only controls which doors an Executive login can reach, never what
+ * they can do once through one. Before `Executive` existed, GM/COO/BDM/
+ * Marketing-Manager/Finance-Manager logins had no narrower option than the
+ * broad, CRUD-everywhere `Manager` role — seeing (and being able to edit)
+ * the entire company's operational data was simply the only login shape on
+ * offer, not a deliberate choice for those titles.
+ *
  * `Operations` and `Viewer` were removed after P2-M2 — never had a real
  * account and weren't part of the intended role set going forward. IT and
  * Office Staff are Employee.designation values, not roles — someone in
@@ -47,6 +64,7 @@ export const ROLES = [
   'HR',
   'Accounts',
   'Coordinator',
+  'Executive',
   'Staff',
   'Worker',
 ];

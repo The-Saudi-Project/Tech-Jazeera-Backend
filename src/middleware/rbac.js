@@ -35,9 +35,12 @@ export const requireRoles = (...allowedRoles) => {
  * Staff = every role EXCEPT the self-service personas, Worker (P2-M1) and
  * Staff (the login role — confusingly named the same as this constant, but
  * distinct: STAFF_ROLES is "company-wide admin access", the `Staff` role is
- * "self-service only"). The admin modules (employees, clients, deployments,
- * attendance, documents, quotations, dashboard) are staff-only; Worker and
- * Staff logins use the ESS portal (`/api/me`) instead, never these.
+ * "self-service only"), and Executive (senior-leadership logins — see
+ * user.model.js's doc comment: deny-by-default, allow-listed into specific
+ * routes via requireStaffOrExecutive below, never blanket CRUD access). The
+ * admin modules (employees, clients, deployments, attendance, documents,
+ * quotations, dashboard) are staff-only; Worker and Staff logins use the ESS
+ * portal (`/api/me`) instead, never these.
  *
  * Derived from ROLES rather than hard-coded so a future self-service role is
  * excluded automatically. Mounted at the router level (`router.use(requireStaff)`)
@@ -45,5 +48,22 @@ export const requireRoles = (...allowedRoles) => {
  * otherwise ask only for requireAuth, which is exactly where a Worker/Staff
  * login would leak into company-wide data.
  */
-export const STAFF_ROLES = ROLES.filter((role) => role !== 'Worker' && role !== 'Staff');
+export const STAFF_ROLES = ROLES.filter((role) => !['Worker', 'Staff', 'Executive'].includes(role));
 export const requireStaff = requireRoles(...STAFF_ROLES);
+
+/**
+ * requireStaff, plus Executive — for the short, deliberate list of routes an
+ * Executive login (GM/COO) may reach: the Dashboard, and the read + decide
+ * endpoints of whichever request types the Configurable Approval Hierarchy
+ * can route to senior leadership (Leave, Timesheet, SalaryAdvance,
+ * Reimbursement) plus the Approval Log. Letting Executive through THIS gate
+ * is safe by construction: the shared approval engine (approvalEngine.
+ * service.js) re-checks real ApprovalRole membership per item regardless of
+ * who cleared the router-level gate, so an Executive with no membership on a
+ * given workflow step simply can't decide it — this only controls which
+ * doors they can knock on, never what happens once they do.
+ *
+ * Deliberately NOT used for money-handling actions (repayments, marking a
+ * claim paid) or any create/edit/delete route — see docs/RBAC-notes.md.
+ */
+export const requireStaffOrExecutive = requireRoles(...STAFF_ROLES, 'Executive');

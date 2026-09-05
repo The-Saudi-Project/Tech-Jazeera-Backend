@@ -10,7 +10,7 @@
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createLeaveTypeSchema,
@@ -29,7 +29,8 @@ const router = Router();
 router.use(requireAuth);
 
 // Leave types: readable by anyone authenticated (a Worker needs this list to
-// submit); only Admin/Manager shape the policy.
+// submit); only Admin/HR shape the policy — this is company leave policy
+// configuration, not a day-to-day operational manager's job.
 router.get(
   '/leave-types',
   validate({ query: listLeaveTypesSchema }),
@@ -37,21 +38,24 @@ router.get(
 );
 router.post(
   '/leave-types',
-  requireRoles('Admin', 'Manager'),
+  requireRoles('Admin', 'HR'),
   validate({ body: createLeaveTypeSchema }),
   asyncHandler(leaveController.createType)
 );
 router.patch(
   '/leave-types/:id',
-  requireRoles('Admin', 'Manager'),
+  requireRoles('Admin', 'HR'),
   validate({ params: leaveTypeIdParamSchema, body: updateLeaveTypeSchema }),
   asyncHandler(leaveController.updateType)
 );
 
 // Leave requests: the staff review queue. Workers use /api/me/leave.
+// requireStaffOrExecutive on these three: an Executive (GM/COO) needs to see
+// the queue, submit their own request, and decide whatever step they're a
+// real ApprovalRole member of — the engine re-checks that membership itself.
 router.get(
   '/leave',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ query: listLeaveRequestsSchema }),
   asyncHandler(leaveController.list)
 );
@@ -60,19 +64,21 @@ router.get(
 // Admin has no Employee record and gets a clear 400 from the controller.
 router.post(
   '/leave',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ body: submitLeaveRequestSchema }),
   asyncHandler(leaveController.submit)
 );
-// requireStaff (not the original 4-role list): once ApprovalRole membership
-// is decoupled from User.role, an Admin could legitimately put an Accounts
-// user into a workflow step — the shared engine (approvalEngine.service.js)
-// is the REAL authorization now; this just confirms "some staff member is
-// asking." A request not yet on a workflow still enforces the original
-// Admin/Manager/HR/Coordinator gate itself, inside the engine's legacy path.
+// requireStaffOrExecutive (not the original 4-role list): once ApprovalRole
+// membership is decoupled from User.role, an Admin could legitimately put an
+// Accounts user into a workflow step — the shared engine
+// (approvalEngine.service.js) is the REAL authorization now; this just
+// confirms "some staff member (or Executive) is asking." A request not yet
+// on a workflow still enforces the original Admin/Manager/HR/Coordinator
+// gate itself, inside the engine's legacy path — an Executive with no
+// workflow membership can reach this route but can't decide anything on it.
 router.patch(
   '/leave/:id/decide',
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ params: leaveRequestIdParamSchema, body: decideLeaveRequestSchema }),
   asyncHandler(leaveController.decide)
 );

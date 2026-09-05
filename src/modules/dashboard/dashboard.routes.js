@@ -4,11 +4,14 @@
  * their own landing is the ESS portal (P2-M2). Every figure a Coordinator
  * receives is scoped to their own team by the service, not by this route —
  * see dashboard.service.js's getDashboard() doc comment.
+ *
+ * requireStaffOrExecutive (not plain requireStaff): this is exactly the
+ * "just needs to see data" screen an Executive (GM/COO) login is for.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireStaff } from '../../middleware/rbac.js';
+import { requireStaffOrExecutive } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { dashboardQuerySchema } from './dashboard.validation.js';
 import * as dashboardController from './dashboard.controller.js';
@@ -18,7 +21,7 @@ const router = Router();
 router.get(
   '/',
   requireAuth,
-  requireStaff,
+  requireStaffOrExecutive,
   validate({ query: dashboardQuerySchema }),
   asyncHandler(dashboardController.overview)
 );
