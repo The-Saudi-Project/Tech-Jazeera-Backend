@@ -80,6 +80,16 @@ export async function canAccessSection(sectionKey, actor) {
   return false;
 }
 
+export async function getMySectionAccess(actor) {
+  const allowed = [];
+  for (const key of SECTION_KEYS) {
+    if (await canAccessSection(key, actor)) {
+      allowed.push(key);
+    }
+  }
+  return allowed;
+}
+
 async function assertValidApprovalRoles(roleIds) {
   if (!roleIds?.length) return;
   const count = await ApprovalRole.countDocuments({ _id: { $in: roleIds }, isActive: true });

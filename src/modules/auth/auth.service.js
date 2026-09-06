@@ -23,6 +23,7 @@ import User from './user.model.js';
 import RefreshToken from './refreshToken.model.js';
 import { logAudit } from '../audit/audit.service.js';
 import { deleteAvatarMedia } from './avatar.upload.js';
+import { getMySectionAccess } from '../sectionAccess/sectionAccess.service.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 export const REFRESH_TOKEN_TTL_DAYS = 7;
@@ -120,9 +121,10 @@ export async function login({ email, password, ip }) {
   }
 
   const tokens = await issueTokens(user);
+  const sectionAccess = await getMySectionAccess({ userId: user._id, role: user.role });
   await logAudit({ user: user._id, action: 'auth.login.success', ip });
   logger.info(`Login: ${user.email} (${user.role})`);
-  return { user: publicUser(user), ...tokens };
+  return { user: { ...publicUser(user), sectionAccess }, ...tokens };
 }
 
 /**
@@ -172,7 +174,8 @@ export async function refresh({ refreshToken, ip }) {
   }
 
   const tokens = await issueTokens(user);
-  return { user: publicUser(user), ...tokens };
+  const sectionAccess = await getMySectionAccess({ userId: user._id, role: user.role });
+  return { user: { ...publicUser(user), sectionAccess }, ...tokens };
 }
 
 /**
