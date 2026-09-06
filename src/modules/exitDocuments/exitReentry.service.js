@@ -1,13 +1,32 @@
 /**
- * Exit Re-Entry visa request service — submit/decide/mark-issued, same
- * single-level shape as Leave and the financial requests.
+ * Exit Re-Entry visa request service — submit/decide/mark-issued.
+ * Submit/decide now run through the same Configurable Approval Hierarchy
+ * engine as Leave/Timesheet/SalaryAdvance/Reimbursement — see
+ * approvals/approvalEngine.service.js; `mark-issued` stays a separate,
+ * un-workflowed HR/compliance step regardless (see exitReentry.model.js).
  */
 import Employee from '../employees/employee.model.js';
 import LeaveRequest from '../leave/leaveRequest.model.js';
 import ExitReentryRequest from './exitReentry.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
-import { notifyEmployeeUser } from '../notifications/notification.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
+
+/** The ORIGINAL decide-route role gate — preserved exactly as the
+ *  authorization used whenever no ApprovalWorkflow governs a request. */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
+
+/** Shared by submitExitReentry (notifySubmission) and decideExitReentry
+ *  (buildStepNotification) so the text can never drift between steps. */
+function buildExitReentryStepNotification(doc, stepIndex) {
+  return {
+    type: 'RequestStatus',
+    title: 'An exit re-entry visa request needs your approval',
+    body: doc.steps?.[stepIndex]?.label ? `Step: ${doc.steps[stepIndex].label}` : undefined,
+    url: '/exit-documents',
+  };
+}
 
 async function assertOwnsLeaveRequest(employeeId, leaveRequestId) {
   if (!leaveRequestId) return;
@@ -22,7 +41,12 @@ export async function submitExitReentry(employeeId, data, actor) {
   if (!employee) throw new ApiError(404, 'Employee not found.');
   await assertOwnsLeaveRequest(employeeId, data.linkedLeaveRequest);
 
-  const request = await ExitReentryRequest.create({ employee: employeeId, ...data });
+  const workflow = await resolveApprovalWorkflow(employee, 'ExitReentry');
+  const workflowFields = workflow
+    ? { workflow: workflow._id, workflowName: workflow.name, steps: workflow.steps, currentStep: 0 }
+    : {};
+
+  const request = await ExitReentryRequest.create({ employee: employeeId, ...data, ...workflowFields });
   await logAudit({
     user: actor.userId,
     action: 'exitReentry.submit',
@@ -31,7 +55,9 @@ export async function submitExitReentry(employeeId, data, actor) {
     meta: { employeeId: employee.employeeId, visaType: data.visaType },
     ip: actor.ip,
   });
-  return request.toObject();
+  const plain = request.toObject();
+  await notifySubmission(plain, buildExitReentryStepNotification, LEGACY_DECIDE_ROLES);
+  return plain;
 }
 
 export async function listOwnExitReentry(employeeId, { page, limit, status }) {
@@ -64,47 +90,58 @@ export async function cancelExitReentry(employeeId, id, actor) {
   return request.toObject();
 }
 
-export async function listExitReentry({ page, limit, status, employee }) {
+export async function listExitReentry({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
   if (employee) filter.employee = employee;
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     ExitReentryRequest.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
+      .populate('decidedBy', 'name')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     ExitReentryRequest.countDocuments(filter),
   ]);
+  // Real, server-computed "can this viewer decide it" per row — see
+  // approvalEngine.service.js. Convenience for the UI only; decideExitReentry
+  // remains the actual gate.
+  const items = await annotateCanDecide(rawItems, actor, {
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+  });
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
+/**
+ * Delegates the actual step/authorization logic to the shared engine: a
+ * request with no `workflow` runs the exact original single-level flow
+ * (LEGACY_DECIDE_ROLES, unchanged); one WITH a workflow is decided
+ * step-by-step against real ApprovalRole membership instead.
+ */
 export async function decideExitReentry(id, { status, decisionNote }, actor) {
-  const request = await ExitReentryRequest.findById(id);
-  if (!request) throw new ApiError(404, 'Exit re-entry request not found.');
-  if (request.status !== 'Pending') throw new ApiError(400, 'Only a pending request can be decided.');
-
-  request.status = status;
-  request.decidedBy = actor.userId;
-  request.decidedAt = new Date();
-  request.decisionNote = decisionNote;
-  await request.save();
-  await logAudit({
-    user: actor.userId,
-    action: `exitReentry.${status.toLowerCase()}`,
-    targetType: 'ExitReentryRequest',
-    targetId: request._id,
-    meta: { decisionNote },
-    ip: actor.ip,
+  return decideApprovalStep({
+    Model: ExitReentryRequest,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    notFoundMessage: 'Exit re-entry request not found.',
+    auditAction: 'exitReentry',
+    buildFinalNotification: (doc) => ({
+      type: 'RequestStatus',
+      title: `Exit re-entry visa request ${doc.status.toLowerCase()}`,
+      body: doc.decisionNote || undefined,
+      url: (role) => (role === 'Worker' || role === 'Staff' ? '/me/exit-documents' : '/exit-documents'),
+    }),
+    buildStepNotification: buildExitReentryStepNotification,
   });
-  await notifyEmployeeUser(request.employee, {
-    type: 'RequestStatus',
-    title: `Exit re-entry visa request ${status.toLowerCase()}`,
-    body: decisionNote || undefined,
-    url: '/me/exit-documents',
-  });
-  return request.toObject();
 }
 
 /** HR records that the visa was actually processed with Jawazat/Muqeem. */

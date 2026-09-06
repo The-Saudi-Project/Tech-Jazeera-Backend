@@ -9,6 +9,8 @@ import ApprovalRole from './approvalRole.model.js';
 import ApprovalWorkflow from './approvalWorkflow.model.js';
 import User from '../auth/user.model.js';
 import LeaveRequest from '../leave/leaveRequest.model.js';
+import ExitReentryRequest from '../exitDocuments/exitReentry.model.js';
+import CertificateRequest from '../exitDocuments/certificate.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import { STAFF_ROLES } from '../../middleware/rbac.js';
@@ -159,13 +161,21 @@ export async function resolveApprovalWorkflow(employee, requestType) {
 // ---------------------------------------------------------------------------
 // Approval Log — cross-request-type, ordered view of every workflow-decided
 // step, for whoever sits in the hierarchy (not just Admin) to see "who
-// approved what." Only Leave is wired to a workflow so far (Milestone 4);
-// SalaryAdvance/Reimbursement/Timesheet join LOG_SOURCES unchanged once
-// their own milestones add `workflow`/`approvalTrail` fields.
+// approved what."
+//
+// NOTE: SalaryAdvance/Reimbursement/Timesheet/Mobilisation all support a
+// workflow too (see their own service files) but were never added here —
+// found while wiring ExitReentry/Certificate onto the engine, flagged as a
+// separate follow-up rather than fixed in the same pass (Mobilisation in
+// particular has a different shape — its `coordinators` are Users directly,
+// not an Employee — worth verifying on its own before reusing this exact
+// query shape for it).
 // ---------------------------------------------------------------------------
 
 const LOG_SOURCES = {
   Leave: { Model: LeaveRequest, typeNameField: 'leaveTypeName' },
+  ExitReentry: { Model: ExitReentryRequest, typeNameField: 'visaType' },
+  Certificate: { Model: CertificateRequest, typeNameField: 'type' },
 };
 
 /** Is this user a member of ANY approval role — the dynamic "sits somewhere

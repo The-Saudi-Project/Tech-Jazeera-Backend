@@ -21,7 +21,15 @@
  */
 import mongoose from 'mongoose';
 
-export const APPROVAL_REQUEST_TYPES = ['Leave', 'SalaryAdvance', 'Reimbursement', 'Timesheet', 'Mobilisation'];
+export const APPROVAL_REQUEST_TYPES = [
+  'Leave',
+  'SalaryAdvance',
+  'Reimbursement',
+  'Timesheet',
+  'Mobilisation',
+  'ExitReentry',
+  'Certificate',
+];
 
 const workflowStepSchema = new mongoose.Schema(
   {

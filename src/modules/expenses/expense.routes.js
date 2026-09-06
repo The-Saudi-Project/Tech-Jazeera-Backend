@@ -1,16 +1,18 @@
 /**
- * Expense routes (P2-M7).
- *
- * Roles: this is internal cost data (rent, external salaries, purchases) —
- * a narrower view circle than Invoices' "any authenticated staff", matching
- * the same Admin/Manager/HR/Accounts circle already used for Payroll/EOSB.
- * Entering an expense is a money action (Admin/Manager/Accounts, not HR);
- * deleting is Admin/Manager only, same as Invoice.
+ * Expense routes (P2-M7) — internal cost data (rent, external salaries,
+ * purchases). Access is the generic, admin-configurable Section Access
+ * mechanism (see sectionAccess.model.js), same as Payroll: by default only
+ * Accounts (plus Admin, always) can reach this module, with full
+ * read/write/delete as one unified circle — no separate view/write/delete
+ * tiers. An Admin can extend that circle to specific roles or ApprovalRoles
+ * (e.g. a "Financial Manager"/"COO"-named role) from the Section Access
+ * settings page. Every mutation is still audit-logged (see
+ * expense.service.js's logAudit calls).
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadSingle } from '../../middleware/upload.js';
 import {
@@ -25,28 +27,18 @@ import * as expenseController from './expense.controller.js';
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireRoles('Admin', 'Manager', 'HR', 'Accounts'));
-
-const canWrite = requireRoles('Admin', 'Manager', 'Accounts');
-const canDelete = requireRoles('Admin', 'Manager');
+router.use(requireSectionAccess('expenses'));
 
 router.get('/', validate({ query: listExpensesSchema }), asyncHandler(expenseController.list));
 router.get('/summary', validate({ query: summaryQuerySchema }), asyncHandler(expenseController.summary));
 router.get('/:id', validate({ params: expenseIdParamSchema }), asyncHandler(expenseController.get));
 router.get('/:id/receipt', validate({ params: expenseIdParamSchema }), asyncHandler(expenseController.receipt));
-router.post(
-  '/',
-  canWrite,
-  uploadSingle,
-  validate({ body: createExpenseSchema }),
-  asyncHandler(expenseController.create)
-);
+router.post('/', uploadSingle, validate({ body: createExpenseSchema }), asyncHandler(expenseController.create));
 router.patch(
   '/:id',
-  canWrite,
   validate({ params: expenseIdParamSchema, body: updateExpenseSchema }),
   asyncHandler(expenseController.update)
 );
-router.delete('/:id', canDelete, validate({ params: expenseIdParamSchema }), asyncHandler(expenseController.remove));
+router.delete('/:id', validate({ params: expenseIdParamSchema }), asyncHandler(expenseController.remove));
 
 export default router;

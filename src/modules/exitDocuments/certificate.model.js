@@ -30,6 +30,37 @@ const certificateRequestSchema = new mongoose.Schema(
     // for the attestation type = the physical stamping is complete.
     issuedAt: { type: Date, default: null },
     issuedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
+    // Configurable Approval Hierarchy — same shape as leaveRequest.model.js /
+    // exitReentry.model.js; null means the original single-level flow.
+    workflow: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalWorkflow', default: null },
+    workflowName: { type: String, default: null },
+    steps: {
+      type: [
+        {
+          label: String,
+          roles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }],
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
+    currentStep: { type: Number, default: 0 },
+    approvalTrail: {
+      type: [
+        {
+          step: Number,
+          approvalRole: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole', default: null },
+          viaAdminOverride: Boolean,
+          approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          decision: { type: String, enum: ['Approved', 'Rejected'] },
+          note: String,
+          decidedAt: Date,
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
   },
   { timestamps: true }
 );

@@ -1,17 +1,27 @@
 /**
  * Employee routes.
  *
- * Role design: every authenticated role may READ (the whole company runs on
- * looking employees up); WRITE is Admin/Manager/HR (the people who own
- * workforce data); DELETE is Admin/HR only — it destroys history, so the
+ * Role design: every authenticated staff role may READ (the whole company
+ * runs on looking employees up); WRITE is Admin/Manager/HR (the people who
+ * own workforce data); DELETE is Admin/HR only — it destroys history, so the
  * circle is smaller. Status 'Exited' is the everyday alternative to delete.
- * CREATE also allows Coordinator — self-service for their own team, always
- * assigned to themselves, never anyone else's (see employee.service.js).
+ *
+ * CREATE is the generic, admin-configurable Section Access mechanism (see
+ * sectionAccess.model.js), sectionKey 'employeeCreate' — by default nobody
+ * but Admin can add an employee ("until then only admin can add employees,"
+ * the user's own words). An Admin designates a real "office secretary"
+ * person (any role — the whole point is it doesn't have to be a fixed role)
+ * by putting them in an ApprovalRole and granting that role
+ * 'employeeCreate' access from the Section Access page. Coordinator's old
+ * self-team-creation override in employee.service.js still exists and still
+ * works, but is dormant unless an Admin explicitly re-grants 'Coordinator'
+ * that access — it's no longer a blanket default.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createEmployeeSchema,
@@ -39,10 +49,7 @@ router.get(
 );
 router.post(
   '/',
-  // Coordinator added here: self-service creation of their own team members,
-  // no approval needed (see docs/PHASE2-PLAN.md). The service force-assigns
-  // `coordinator` to themselves regardless of what the form submits.
-  requireRoles('Admin', 'Manager', 'HR', 'Coordinator'),
+  requireSectionAccess('employeeCreate'),
   validate({ body: createEmployeeSchema }),
   asyncHandler(employeeController.create)
 );

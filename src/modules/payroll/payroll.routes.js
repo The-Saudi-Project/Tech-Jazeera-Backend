@@ -1,14 +1,20 @@
 /**
- * Payroll routes (P2-M5). Salary data is sensitive: read is Admin/Manager/
- * HR/Accounts (not Coordinator); building a run and editing a Draft line is
- * Admin/Manager/Accounts (mirrors Quotation's write circle — a financial
- * document); finalizing or deleting a run is Admin/Manager only, the same
- * heavier circle that deletes a quotation.
+ * Payroll routes (P2-M5). Salary data is sensitive — access is now the
+ * generic, admin-configurable Section Access mechanism (see
+ * sectionAccess.model.js) rather than a hardcoded requireRoles(...) list: by
+ * default only Accounts (plus Admin, always) can reach this module at all,
+ * with full read/write/finalize/delete as one unified circle — no more
+ * separate "can view" vs "can write" vs "can finalize" tiers, since whoever
+ * an Admin lets in here is meant to fully run payroll, not partially. An
+ * Admin can extend that circle to specific roles or ApprovalRoles (e.g. a
+ * "Financial Manager"/"COO"-named role) from the Section Access settings
+ * page. Every mutation is still audit-logged regardless of who performs it
+ * (see payroll.service.js's logAudit calls).
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createPayrollRunSchema,
@@ -22,10 +28,7 @@ import * as payrollController from './payroll.controller.js';
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireRoles('Admin', 'Manager', 'HR', 'Accounts'));
-
-const canWrite = requireRoles('Admin', 'Manager', 'Accounts');
-const canFinalize = requireRoles('Admin', 'Manager');
+router.use(requireSectionAccess('payroll'));
 
 router.get('/', validate({ query: listPayrollRunsSchema }), asyncHandler(payrollController.list));
 router.get('/:id', validate({ params: payrollRunIdParamSchema }), asyncHandler(payrollController.get));
@@ -34,19 +37,17 @@ router.get(
   validate({ params: payrollLineParamSchema }),
   asyncHandler(payrollController.pdf)
 );
-router.post('/', canWrite, validate({ body: createPayrollRunSchema }), asyncHandler(payrollController.create));
+router.post('/', validate({ body: createPayrollRunSchema }), asyncHandler(payrollController.create));
 router.patch(
   '/:id/lines/:lineId',
-  canWrite,
   validate({ params: payrollLineParamSchema, body: updatePayrollLineSchema }),
   asyncHandler(payrollController.updateLine)
 );
 router.patch(
   '/:id/finalize',
-  canFinalize,
   validate({ params: payrollRunIdParamSchema }),
   asyncHandler(payrollController.finalize)
 );
-router.delete('/:id', canFinalize, validate({ params: payrollRunIdParamSchema }), asyncHandler(payrollController.remove));
+router.delete('/:id', validate({ params: payrollRunIdParamSchema }), asyncHandler(payrollController.remove));
 
 export default router;

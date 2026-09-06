@@ -1,7 +1,9 @@
 /**
  * Certificate request service — submit/decide/mark-issued, plus resolving
  * the data a PDF needs (never trusting the client for any of it — the same
- * discipline as quotation totals and the EOSB calculator).
+ * discipline as quotation totals and the EOSB calculator). Submit/decide run
+ * through the same Configurable Approval Hierarchy engine as Leave/
+ * ExitReentry — see approvals/approvalEngine.service.js.
  */
 import Employee from '../employees/employee.model.js';
 import Settlement from '../eosb/settlement.model.js';
@@ -9,13 +11,34 @@ import CertificateRequest from './certificate.model.js';
 import { CERTIFICATE_TYPES_WITH_PDF } from './certificate.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
-import { notifyEmployeeUser } from '../notifications/notification.service.js';
+import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
+import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
+
+/** The ORIGINAL decide-route role gate — preserved exactly as the
+ *  authorization used whenever no ApprovalWorkflow governs a request. */
+const LEGACY_DECIDE_ROLES = ['Admin', 'Manager', 'HR'];
+
+/** Shared by submitCertificate (notifySubmission) and decideCertificate
+ *  (buildStepNotification) so the text can never drift between steps. */
+function buildCertificateStepNotification(doc, stepIndex) {
+  return {
+    type: 'RequestStatus',
+    title: `A ${doc.type} request needs your approval`,
+    body: doc.steps?.[stepIndex]?.label ? `Step: ${doc.steps[stepIndex].label}` : undefined,
+    url: '/exit-documents',
+  };
+}
 
 export async function submitCertificate(employeeId, data, actor) {
   const employee = await Employee.findById(employeeId).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
 
-  const request = await CertificateRequest.create({ employee: employeeId, ...data });
+  const workflow = await resolveApprovalWorkflow(employee, 'Certificate');
+  const workflowFields = workflow
+    ? { workflow: workflow._id, workflowName: workflow.name, steps: workflow.steps, currentStep: 0 }
+    : {};
+
+  const request = await CertificateRequest.create({ employee: employeeId, ...data, ...workflowFields });
   await logAudit({
     user: actor.userId,
     action: 'certificate.submit',
@@ -24,7 +47,9 @@ export async function submitCertificate(employeeId, data, actor) {
     meta: { employeeId: employee.employeeId, type: data.type },
     ip: actor.ip,
   });
-  return request.toObject();
+  const plain = request.toObject();
+  await notifySubmission(plain, buildCertificateStepNotification, LEGACY_DECIDE_ROLES);
+  return plain;
 }
 
 export async function listOwnCertificates(employeeId, { page, limit, status }) {
@@ -55,47 +80,49 @@ export async function cancelCertificate(employeeId, id, actor) {
   });
 }
 
-export async function listCertificates({ page, limit, status, employee }) {
+export async function listCertificates({ page, limit, status, employee }, actor) {
   const filter = {};
   if (status) filter.status = status;
   if (employee) filter.employee = employee;
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     CertificateRequest.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('employee', 'fullName employeeId')
+      .populate('decidedBy', 'name')
+      .populate('steps.roles', 'name')
+      .populate('approvalTrail.approvalRole', 'name')
+      .populate('approvalTrail.approvedBy', 'name role')
       .lean(),
     CertificateRequest.countDocuments(filter),
   ]);
+  const items = await annotateCanDecide(rawItems, actor, {
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+  });
   return { items, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export async function decideCertificate(id, { status, decisionNote }, actor) {
-  const request = await CertificateRequest.findById(id);
-  if (!request) throw new ApiError(404, 'Certificate request not found.');
-  if (request.status !== 'Pending') throw new ApiError(400, 'Only a pending request can be decided.');
-
-  request.status = status;
-  request.decidedBy = actor.userId;
-  request.decidedAt = new Date();
-  request.decisionNote = decisionNote;
-  await request.save();
-  await logAudit({
-    user: actor.userId,
-    action: `certificate.${status.toLowerCase()}`,
-    targetType: 'CertificateRequest',
-    targetId: request._id,
-    meta: { decisionNote },
-    ip: actor.ip,
+  return decideApprovalStep({
+    Model: CertificateRequest,
+    id,
+    decision: status,
+    note: decisionNote,
+    actor,
+    pendingStatus: 'Pending',
+    legacyAllowedRoles: LEGACY_DECIDE_ROLES,
+    notFoundMessage: 'Certificate request not found.',
+    auditAction: 'certificate',
+    buildFinalNotification: (doc) => ({
+      type: 'RequestStatus',
+      title: `${doc.type} certificate request ${doc.status.toLowerCase()}`,
+      body: doc.decisionNote || undefined,
+      url: (role) => (role === 'Worker' || role === 'Staff' ? '/me/exit-documents' : '/exit-documents'),
+    }),
+    buildStepNotification: buildCertificateStepNotification,
   });
-  await notifyEmployeeUser(request.employee, {
-    type: 'RequestStatus',
-    title: `${request.type} certificate request ${status.toLowerCase()}`,
-    body: decisionNote || undefined,
-    url: '/me/exit-documents',
-  });
-  return request.toObject();
 }
 
 /** Marks issued — for a letter, "handed over"; for the attestation type, "stamped and returned". */

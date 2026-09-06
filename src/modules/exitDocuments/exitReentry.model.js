@@ -38,6 +38,40 @@ const exitReentrySchema = new mongoose.Schema(
     issuedAt: { type: Date, default: null },
     issuedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     visaReferenceNumber: { type: String, trim: true, maxlength: 100 },
+
+    // Configurable Approval Hierarchy — null on every field below means "no
+    // workflow governs this request," i.e. the original single-level flow
+    // (decidedBy/At/Note set directly by whichever legacy-allowed role
+    // decides it). Exact same shape as leaveRequest.model.js — see
+    // approvals/approvalEngine.service.js.
+    workflow: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalWorkflow', default: null },
+    workflowName: { type: String, default: null },
+    steps: {
+      type: [
+        {
+          label: String,
+          roles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }],
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
+    currentStep: { type: Number, default: 0 },
+    approvalTrail: {
+      type: [
+        {
+          step: Number,
+          approvalRole: { type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole', default: null },
+          viaAdminOverride: Boolean,
+          approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          decision: { type: String, enum: ['Approved', 'Rejected'] },
+          note: String,
+          decidedAt: Date,
+          _id: false,
+        },
+      ],
+      default: undefined,
+    },
   },
   { timestamps: true }
 );
