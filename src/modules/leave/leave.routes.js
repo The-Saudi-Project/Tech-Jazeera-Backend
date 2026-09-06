@@ -9,9 +9,11 @@
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
+import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
+import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
 import {
   createLeaveTypeSchema,
   updateLeaveTypeSchema,
@@ -65,8 +67,17 @@ router.get(
 router.post(
   '/leave',
   requireStaffOrExecutive,
+  uploadSingle,
   validate({ body: submitLeaveRequestSchema }),
   asyncHandler(leaveController.submit)
+);
+// GET, not staff-review-gated any tighter than the queue itself is —
+// requireStaffOrExecutive matches the list/decide routes above.
+router.get(
+  '/leave/:id/attachment',
+  requireStaffOrExecutive,
+  validate({ params: leaveRequestIdParamSchema }),
+  asyncHandler(leaveController.attachment)
 );
 // requireStaffOrExecutive (not the original 4-role list): once ApprovalRole
 // membership is decoupled from User.role, an Admin could legitimately put an
@@ -88,5 +99,17 @@ router.patch(
   validate({ params: leaveRequestIdParamSchema }),
   asyncHandler(leaveController.acknowledge)
 );
+
+/** Same orphaned-upload cleanup as document.routes.js/financialRequests.routes.js
+ *  — only the leave POST above ever sets req.file on this router. */
+// eslint-disable-next-line no-unused-vars
+router.use((err, req, res, next) => {
+  if (req.file?.filename) {
+    destroyDocumentFile(req.file.filename).catch((cleanupErr) =>
+      logger.error(`[leave] orphaned attachment upload ${req.file.filename}: ${cleanupErr.message}`)
+    );
+  }
+  next(err);
+});
 
 export default router;

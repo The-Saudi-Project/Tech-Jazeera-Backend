@@ -73,12 +73,12 @@ const employeeObjectSchema = z
       .regex(/^[A-Za-z0-9-]+$/, 'Only letters, numbers and dashes.')
       .transform((s) => s.toUpperCase()),
     fullName: z.string().trim().min(2, 'Full name is required.').max(100),
-    // 'Own' = internal staff (reports to a Manager); 'Client'/'Subcontracted'
+    // 'Own' = internal staff (reports to a Manager); 'Outsourced'/'Subcontracted'
     // = workforce (see EMPLOYEE_TYPES in employee.model.js). Both workforce
-    // types require the compliance fields below; only 'Client' additionally
+    // types require the compliance fields below; only 'Outsourced' additionally
     // requires salary, and only 'Subcontracted' requires `subcontractor` —
     // see the superRefine at the bottom of this schema.
-    type: z.enum(EMPLOYEE_TYPES).default('Client'),
+    type: z.enum(EMPLOYEE_TYPES).default('Outsourced'),
     nationality: optionalStr(60),
     mobile: z.preprocess(emptyToUndef, phone.optional()),
     email: z.preprocess(
@@ -124,8 +124,8 @@ const employeeObjectSchema = z
     // integrity (must be a real 'Coordinator' user) is checked in the service.
     coordinator: nullableObjectId('coordinator'),
     // The Admin/Manager this employee reports to. Universal across both
-    // types (every 'Own' employee has one; a 'Client' employee may have one
-    // alongside or instead of a coordinator). Validated in the service.
+    // types (every 'Own' employee has one; an 'Outsourced' employee may have
+    // one alongside or instead of a coordinator). Validated in the service.
     manager: nullableObjectId('manager'),
     // Configurable Approval Hierarchy: overrides the company-wide default
     // ApprovalWorkflow for this employee's requests. "" clears it (null),
@@ -143,13 +143,13 @@ const employeeObjectSchema = z
 /** CREATE: the object shape plus the type-driven cross-field check —
  *  mirrors the Mongoose conditional `required`s on the model exactly:
  *  nationality/mobile/joiningDate for both workforce types, salary only for
- *  'Client', `subcontractor` only for 'Subcontracted'. */
+ *  'Outsourced', `subcontractor` only for 'Subcontracted'. */
 export const createEmployeeSchema = employeeObjectSchema.superRefine((data, ctx) => {
   if (data.type === 'Own') return;
   if (!data.nationality) ctx.addIssue({ code: 'custom', path: ['nationality'], message: 'Nationality is required.' });
   if (!data.mobile) ctx.addIssue({ code: 'custom', path: ['mobile'], message: 'Enter a valid mobile number.' });
   if (!data.joiningDate) ctx.addIssue({ code: 'custom', path: ['joiningDate'], message: 'Joining date is required.' });
-  if (data.type === 'Client' && data.salary == null) {
+  if (data.type === 'Outsourced' && data.salary == null) {
     ctx.addIssue({ code: 'custom', path: ['salary'], message: 'Salary is required.' });
   }
   if (data.type === 'Subcontracted' && !data.subcontractor) {
@@ -165,10 +165,10 @@ export const createEmployeeSchema = employeeObjectSchema.superRefine((data, ctx)
  *  same reasoning as `nullableWeekday` above: Zod's `.partial()` only makes a
  *  field optional, it does NOT stop `.default()` from firing when the key is
  *  omitted, so a bare `.partial()` here would silently reset `type` to
- *  'Client' (and `status` to 'Active') on every PATCH that doesn't resend
+ *  'Outsourced' (and `status` to 'Active') on every PATCH that doesn't resend
  *  them — e.g. a PATCH that only touches `joiningDate` would quietly turn a
- *  'Subcontracted' or 'Own' employee into 'Client'. An omitted key on PATCH
- *  must mean "leave unchanged," never "reset to default." */
+ *  'Subcontracted' or 'Own' employee into 'Outsourced'. An omitted key on
+ *  PATCH must mean "leave unchanged," never "reset to default." */
 export const updateEmployeeSchema = employeeObjectSchema.partial().extend({
   type: z.enum(EMPLOYEE_TYPES).optional(),
   status: z.enum(EMPLOYEE_STATUSES).optional(),
@@ -179,8 +179,8 @@ export const listEmployeesSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
   search: optionalStr(100),
   status: z.preprocess(emptyToUndef, z.enum(EMPLOYEE_STATUSES).optional()),
-  // 'Own' | 'Client' — powers the Employees list filter, the deployment
-  // assign-worker picker (Client only), and the Records grid (Client only).
+  // 'Own' | 'Outsourced' — powers the Employees list filter, the deployment
+  // assign-worker picker (Outsourced only), and the Records grid (Outsourced only).
   type: z.preprocess(emptyToUndef, z.enum(EMPLOYEE_TYPES).optional()),
   // String enum, NOT z.coerce.boolean() — that coerces the string "false" to
   // true (any non-empty string is truthy), a classic query-string trap.

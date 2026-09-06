@@ -192,6 +192,15 @@ async function assertValidSubcontractor(subcontractorId) {
 export async function createEmployeeLogin(employeeId, { email, role }, actor) {
   const employee = await Employee.findById(employeeId).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
+  // Milestone 4: the ESS portal is Own-type-only now, so provisioning a login
+  // for an Outsourced/Subcontracted employee would just create a login that
+  // can never sign into anything — reject it at the source instead.
+  if (employee.type !== 'Own') {
+    throw new ApiError(
+      400,
+      'A login can only be created for an Own-type (internal staff) employee — the self-service portal is not available to Outsourced or Subcontracted workers.'
+    );
+  }
 
   const existing = await User.findOne({ employee: employeeId }).lean();
   if (existing) throw new ApiError(409, 'This employee already has a login.');
@@ -297,14 +306,14 @@ export async function resetEmployeeLoginPassword(employeeId, actor) {
 export async function createEmployee(data, actor) {
   const payload = { ...data, createdBy: actor.userId };
   // A Coordinator adding their own worker doesn't pick a coordinator — it's
-  // always themselves. Their choice of 'Client' vs 'Subcontracted' is left
-  // alone (both are "their deployable team"); only 'Own' is overridden,
+  // always themselves. Their choice of 'Outsourced' vs 'Subcontracted' is
+  // left alone (both are "their deployable team"); only 'Own' is overridden,
   // since a Coordinator can never create an internal-staff record. This is
   // an override (not just a default) so a hand-crafted request can't
   // smuggle a different coordinator or an 'Own' type through.
   if (actor.role === 'Coordinator') {
     payload.coordinator = actor.userId;
-    if (payload.type === 'Own') payload.type = 'Client';
+    if (payload.type === 'Own') payload.type = 'Outsourced';
   }
   await assertValidCoordinator(payload.coordinator);
   await assertValidManager(payload.manager);

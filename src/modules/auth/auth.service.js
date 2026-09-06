@@ -21,6 +21,7 @@ import logger from '../../config/logger.js';
 import ApiError from '../../utils/ApiError.js';
 import User from './user.model.js';
 import RefreshToken from './refreshToken.model.js';
+import Employee from '../employees/employee.model.js';
 import { logAudit } from '../audit/audit.service.js';
 import { deleteAvatarMedia } from './avatar.upload.js';
 import { getMySectionAccess } from '../sectionAccess/sectionAccess.service.js';
@@ -77,6 +78,23 @@ function publicUser(user) {
   };
 }
 
+/**
+ * Whether this login may use the ESS portal (Milestone 4: Own-type-only).
+ * Meaningless for every role except Worker/Staff — those never route through
+ * `/api/me` at all, so this always reports `true` for them without touching
+ * the DB. For Worker/Staff, lets the client redirect an ineligible login
+ * (an old Outsourced/Subcontracted account, or one with no employee link at
+ * all) straight to a "no portal access" page instead of letting it land on
+ * `/me` and hit a wall of 403s — the server-side gate in me.routes.js is the
+ * real enforcement; this is purely the client-side UX shortcut.
+ */
+async function getEssEligibility(user) {
+  if (!['Worker', 'Staff'].includes(user.role)) return true;
+  if (!user.employee) return false;
+  const employee = await Employee.findById(user.employee).select('type').lean();
+  return employee?.type === 'Own';
+}
+
 /** Mint both tokens and persist the refresh token's hash as a session row. */
 async function issueTokens(user) {
   const accessToken = jwt.sign({ sub: user._id.toString(), role: user.role }, env.jwtAccessSecret, {
@@ -122,9 +140,10 @@ export async function login({ email, password, ip }) {
 
   const tokens = await issueTokens(user);
   const sectionAccess = await getMySectionAccess({ userId: user._id, role: user.role });
+  const essEligible = await getEssEligibility(user);
   await logAudit({ user: user._id, action: 'auth.login.success', ip });
   logger.info(`Login: ${user.email} (${user.role})`);
-  return { user: { ...publicUser(user), sectionAccess }, ...tokens };
+  return { user: { ...publicUser(user), sectionAccess, essEligible }, ...tokens };
 }
 
 /**
@@ -175,7 +194,8 @@ export async function refresh({ refreshToken, ip }) {
 
   const tokens = await issueTokens(user);
   const sectionAccess = await getMySectionAccess({ userId: user._id, role: user.role });
-  return { user: { ...publicUser(user), sectionAccess }, ...tokens };
+  const essEligible = await getEssEligibility(user);
+  return { user: { ...publicUser(user), sectionAccess, essEligible }, ...tokens };
 }
 
 /**

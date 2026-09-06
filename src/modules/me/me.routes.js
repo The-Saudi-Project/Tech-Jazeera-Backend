@@ -7,11 +7,14 @@
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import logger from '../../config/logger.js';
+import ApiError from '../../utils/ApiError.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
+import Employee from '../employees/employee.model.js';
 import { documentIdParamSchema, fileQuerySchema } from '../documents/document.validation.js';
+import { updateMyProfileSchema } from './me.validation.js';
 import {
   submitLeaveRequestSchema,
   listMyLeaveRequestsSchema,
@@ -47,8 +50,25 @@ const router = Router();
 
 router.use(requireAuth);
 router.use(requireRoles('Worker', 'Staff'));
+// Milestone 4: the ESS portal is now Own-type-only — an Outsourced/
+// Subcontracted employee's login (old or newly attempted) 403s at every
+// single route below, in one place, rather than needing a per-route check.
+// No `req.user.employee` at all falls through unmolested (myEmployeeId() in
+// the controller is still the real 404 for that separate, pre-existing edge
+// case), same as an employee record that no longer resolves.
+router.use(
+  asyncHandler(async (req, res, next) => {
+    if (!req.user.employee) return next();
+    const employee = await Employee.findById(req.user.employee).select('type').lean();
+    if (employee && employee.type !== 'Own') {
+      throw new ApiError(403, 'This portal is only available to internal staff.');
+    }
+    next();
+  })
+);
 
 router.get('/', asyncHandler(meController.getProfile));
+router.patch('/', validate({ body: updateMyProfileSchema }), asyncHandler(meController.updateProfile));
 router.get('/documents', asyncHandler(meController.listDocuments));
 router.get(
   '/documents/:id/file',
@@ -56,7 +76,17 @@ router.get(
   asyncHandler(meController.documentFile)
 );
 router.get('/leave', validate({ query: listMyLeaveRequestsSchema }), asyncHandler(meController.listLeave));
-router.post('/leave', validate({ body: submitLeaveRequestSchema }), asyncHandler(meController.submitLeave));
+router.post(
+  '/leave',
+  uploadSingle,
+  validate({ body: submitLeaveRequestSchema }),
+  asyncHandler(meController.submitLeave)
+);
+router.get(
+  '/leave/:id/attachment',
+  validate({ params: leaveRequestIdParamSchema }),
+  asyncHandler(meController.leaveAttachment)
+);
 router.patch(
   '/leave/:id/cancel',
   validate({ params: leaveRequestIdParamSchema }),
@@ -161,8 +191,9 @@ router.get(
   asyncHandler(meController.payslipPdf)
 );
 
-/** Same orphaned-upload cleanup as document.routes.js — only the
- *  reimbursement POST above ever sets req.file on this router. */
+/** Same orphaned-upload cleanup as document.routes.js — the leave and
+ *  reimbursement POSTs above are the only routes that set req.file on
+ *  this router. */
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
   if (req.file?.filename) {

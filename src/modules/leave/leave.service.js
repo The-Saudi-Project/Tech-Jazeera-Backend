@@ -18,6 +18,7 @@ import { logAudit } from '../audit/audit.service.js';
 import { notifyEmployeeUser } from '../notifications/notification.service.js';
 import { resolveApprovalWorkflow } from '../approvals/approvals.service.js';
 import { decideApprovalStep, annotateCanDecide, notifySubmission } from '../approvals/approvalEngine.service.js';
+import { signedDownloadUrl } from '../../middleware/upload.js';
 
 /** The ORIGINAL decide-route role gate for Leave — preserved exactly as the
  *  authorization used whenever no ApprovalWorkflow governs a request (see
@@ -243,8 +244,8 @@ function evaluateManual(employee, leaveType, requestedDays, now) {
 
 /** Compute eligibility for one employee/leaveType/requestedDays combination. */
 export async function evaluateEligibility(employee, leaveType, requestedDays, now = new Date()) {
-  // joiningDate is required for 'Client' employees but optional for 'Own'
-  // ones (see employee.model.js) — every recurrence type below needs it, so
+  // joiningDate is required for 'Outsourced'/'Subcontracted' employees but
+  // optional for 'Own' ones (see employee.model.js) — every recurrence type below needs it, so
   // fail with a clear message rather than crash if it's genuinely missing.
   if (!employee.joiningDate) {
     throw new ApiError(
@@ -311,7 +312,21 @@ async function assertEmployeeScope(actor, employeeId) {
   }
 }
 
-export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, startDate, endDate, reason }, actor) {
+/** Build the embedded `attachment` from an uploaded file — see
+ *  leaveRequest.model.js's attachmentSchema. Mirrors reimbursement.service.js's
+ *  receiptFromFile exactly, except this is only ever called when a file is
+ *  actually present (the attachment is optional, unlike a receipt). */
+function attachmentFromFile(file) {
+  return {
+    fileName: file.filename, // Cloudinary public_id, set by uploadSingle
+    resourceType: 'raw',
+    originalName: file.originalname,
+    mimeType: file.mimetype,
+    size: file.size,
+  };
+}
+
+export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, startDate, endDate, reason }, file, actor) {
   const employee = await Employee.findById(employeeId).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
 
@@ -364,6 +379,7 @@ export async function submitLeaveRequest(employeeId, { leaveType: leaveTypeId, s
     endDate,
     days,
     reason,
+    attachment: file ? attachmentFromFile(file) : undefined,
     status,
     eligibility: {
       continuousServiceMonths: evaluation.continuousServiceMonths,
@@ -511,6 +527,31 @@ export async function acknowledgeLeaveRequest(id, actor) {
     ip: actor.ip,
   });
   return request.toObject();
+}
+
+/** An attachment for its OWN requester only — used by the /api/me route. */
+export async function getMyAttachmentFile(employeeId, id) {
+  const request = await LeaveRequest.findById(id).lean();
+  if (!request || request.employee.toString() !== employeeId) {
+    throw new ApiError(404, 'Leave request not found.');
+  }
+  return resolveAttachment(request);
+}
+
+/** An attachment for staff review — any request. */
+export async function getAttachmentFile(id) {
+  const request = await LeaveRequest.findById(id).lean();
+  if (!request) throw new ApiError(404, 'Leave request not found.');
+  return resolveAttachment(request);
+}
+
+function resolveAttachment(request) {
+  if (!request.attachment) throw new ApiError(404, 'This request has no attachment.');
+  return {
+    url: signedDownloadUrl(request.attachment.fileName, request.attachment.resourceType),
+    mimeType: request.attachment.mimeType,
+    originalName: request.attachment.originalName,
+  };
 }
 
 /** A worker cancels their own not-yet-started request. */

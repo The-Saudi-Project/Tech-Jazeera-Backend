@@ -16,6 +16,21 @@ export const LEAVE_REQUEST_STATUSES = [
   'Cancelled',
 ];
 
+/** An optional supporting file (e.g. a medical note) — same shape as
+ *  ReimbursementClaim's receipt (reimbursement.model.js), but never
+ *  required: not every leave type needs proof. _id disabled — a value
+ *  object, not an entity. */
+const attachmentSchema = new mongoose.Schema(
+  {
+    fileName: { type: String, required: true }, // Cloudinary public_id
+    resourceType: { type: String, required: true }, // 'raw', from the upload middleware
+    originalName: { type: String, required: true },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true },
+  },
+  { _id: false }
+);
+
 const leaveRequestSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
@@ -28,6 +43,7 @@ const leaveRequestSchema = new mongoose.Schema(
     endDate: { type: Date, required: true },
     days: { type: Number, required: true, min: 1 }, // inclusive calendar days
     reason: { type: String, trim: true, maxlength: 500 },
+    attachment: { type: attachmentSchema, default: undefined },
 
     status: { type: String, enum: LEAVE_REQUEST_STATUSES, default: 'PendingReview' },
 

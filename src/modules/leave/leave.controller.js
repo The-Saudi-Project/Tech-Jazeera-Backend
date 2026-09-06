@@ -1,8 +1,12 @@
 /**
- * Leave controller — HTTP translation only.
+ * Leave controller — HTTP translation only. The attachment endpoint streams
+ * bytes (not the JSON envelope), same pattern as reimbursement receipts.
  */
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import ApiError from '../../utils/ApiError.js';
 import ApiResponse from '../../utils/ApiResponse.js';
+import { contentDisposition } from '../../utils/contentDisposition.js';
 import * as leaveService from './leave.service.js';
 
 const actor = (req) => ({ userId: req.user.id, role: req.user.role, employee: req.user.employee, ip: req.ip });
@@ -45,10 +49,26 @@ export async function submit(req, res) {
       'Your account has no linked employee record, so there is nothing to submit a personal request against.'
     );
   }
-  const request = await leaveService.submitLeaveRequest(req.user.employee, req.body, actor(req));
+  const request = await leaveService.submitLeaveRequest(req.user.employee, req.body, req.file, actor(req));
   const message =
     request.status === 'AutoApproved' ? 'Leave request approved.' : 'Leave request submitted for review.';
   res.status(201).json(new ApiResponse(message, request));
+}
+
+/** GET /api/leave/:id/attachment — streams the attachment (staff review). */
+export async function attachment(req, res) {
+  const fileData = await leaveService.getAttachmentFile(req.params.id);
+  await streamAttachment(fileData, res);
+}
+
+export async function streamAttachment(fileData, res) {
+  res.setHeader('Content-Type', fileData.mimeType);
+  res.setHeader('Content-Disposition', contentDisposition(fileData.originalName));
+  const upstream = await fetch(fileData.url);
+  if (!upstream.ok || !upstream.body) {
+    throw new ApiError(410, 'The stored attachment is no longer available.');
+  }
+  await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
 /** PATCH /api/leave/:id/decide   (Admin, Manager, HR, Coordinator-own-team) */

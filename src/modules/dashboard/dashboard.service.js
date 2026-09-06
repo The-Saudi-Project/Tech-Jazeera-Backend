@@ -209,9 +209,9 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
   if (teamIds) deploymentFilter.worker = { $in: teamIds };
 
   // "Active Workers"/"Workforce by status" mean the supplied workforce —
-  // both Client (our own, supplied to clients) and Subcontracted (sourced
+  // both Outsourced (our own, supplied to clients) and Subcontracted (sourced
   // from an outside subcontractor) count here; only Own-type internal staff
-  // are excluded. Payroll's own aggregate below stays Client-only.
+  // are excluded. Payroll's own aggregate below stays Outsourced-only.
   const employeeStatusFilter = { type: { $in: WORKFORCE_TYPES }, ...(teamIds ? { _id: { $in: teamIds } } : {}) };
 
   const markedTodayFilter = { date: toUtcDay(new Date()) };
@@ -235,13 +235,13 @@ export async function getDashboard({ thresholdDays, month, actor } = {}) {
     Deployment.countDocuments(deploymentFilter),
     Employee.aggregate([{ $match: employeeStatusFilter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
     // Payroll — skipped for a Coordinator or a Manager (BDM), see hideFinance
-    // above. type: 'Client' — this figure is the supplied workforce's pay,
+    // above. type: 'Outsourced' — this figure is the supplied workforce's pay,
     // not internal staff salaries (an Own-type employee's salary, if ever
     // set, must never silently flow into this).
     hideFinance
       ? Promise.resolve([])
       : Employee.aggregate([
-          { $match: { status: { $ne: 'Exited' }, type: 'Client' } },
+          { $match: { status: { $ne: 'Exited' }, type: 'Outsourced' } },
           { $group: { _id: null, total: { $sum: '$salary' } } },
         ]),
     // A Coordinator's "clients" are the distinct clients their team is

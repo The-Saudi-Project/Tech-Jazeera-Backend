@@ -6,8 +6,8 @@
  * (Manager/HR/Accounts/Coordinator) now gets one too).
  *
  * Schema choices, justified:
- *  - `type` splits the population this record can represent: 'Client' is the
- *    original meaning (workforce supplied to clients — visa/iqama-tracked,
+ *  - `type` splits the population this record can represent: 'Outsourced' is
+ *    the original meaning (workforce supplied to clients — visa/iqama-tracked,
  *    salary counted in payroll); 'Own' is internal staff (Manager/HR/IT/
  *    Office roles), who may have none of that compliance paperwork. See the
  *    conditional `required` on nationality/mobile/joiningDate/salary below.
@@ -25,19 +25,19 @@ import mongoose from 'mongoose';
 
 /** Single source of truth for status values — validation and UI import it. */
 export const EMPLOYEE_STATUSES = ['Active', 'On Leave', 'Exited'];
-/** 'Own' = internal staff (reports to a Manager). 'Client' = the company's
- *  own workforce supplied to clients (mapped to a Coordinator and/or a
- *  Manager). 'Subcontracted' = a worker sourced from an outside
+/** 'Own' = internal staff (reports to a Manager). 'Outsourced' = the
+ *  company's own workforce supplied to clients (mapped to a Coordinator
+ *  and/or a Manager). 'Subcontracted' = a worker sourced from an outside
  *  Subcontractor (their employer of record, not this company) and placed
  *  with a client — full compliance/attendance record, but never this
  *  company's payroll (see `salary`'s own required-check below, which is
  *  deliberately narrower than the other compliance fields'). */
-export const EMPLOYEE_TYPES = ['Own', 'Client', 'Subcontracted'];
+export const EMPLOYEE_TYPES = ['Own', 'Outsourced', 'Subcontracted'];
 /** The "not internal staff" set — every module that means "the workforce
  *  we track on-site" (Attendance, the Coordinator team scope, etc.) should
  *  import this instead of re-deriving it, so a future fourth type doesn't
  *  need finding every inline `!== 'Own'` check. */
-export const WORKFORCE_TYPES = ['Client', 'Subcontracted'];
+export const WORKFORCE_TYPES = ['Outsourced', 'Subcontracted'];
 
 /** Both workforce types carry the compliance/attendance fields below as
  *  required — only 'Own' (internal staff) is exempt. */
@@ -45,12 +45,12 @@ function requiredForWorkforce() {
   return this.type !== 'Own';
 }
 
-/** Only 'Client' is paid through this company's own Payroll — a
+/** Only 'Outsourced' is paid through this company's own Payroll — a
  *  Subcontracted worker's pay is the subcontractor's business, never
  *  aggregated here (see payroll.service.js / dashboard.service.js, both of
- *  which filter on `type: 'Client'` explicitly and must stay that way). */
+ *  which filter on `type: 'Outsourced'` explicitly and must stay that way). */
 function requiredForOwnPayroll() {
-  return this.type === 'Client';
+  return this.type === 'Outsourced';
 }
 
 /** A Subcontracted employee must name who supplied them. */
@@ -76,9 +76,9 @@ const employeeSchema = new mongoose.Schema(
     // the unique index also backs duplicate detection (409 via error handler).
     employeeId: { type: String, required: true, unique: true, trim: true, uppercase: true },
     fullName: { type: String, required: true, trim: true },
-    // 'Own' = internal staff; 'Client'/'Subcontracted' = workforce (see
+    // 'Own' = internal staff; 'Outsourced'/'Subcontracted' = workforce (see
     // EMPLOYEE_TYPES above for the distinction between the two).
-    type: { type: String, enum: EMPLOYEE_TYPES, required: true, default: 'Client' },
+    type: { type: String, enum: EMPLOYEE_TYPES, required: true, default: 'Outsourced' },
     nationality: { type: String, required: requiredForWorkforce, trim: true },
     mobile: { type: String, required: requiredForWorkforce, trim: true },
     // Optional — many field workers have no email. NOT unique for that reason.
@@ -94,7 +94,7 @@ const employeeSchema = new mongoose.Schema(
     designation: { type: String, required: true, trim: true },
     department: { type: String, trim: true },
     // Monthly salary in SAR. Number (not string) so M10 can aggregate costs.
-    // Required only for Client — this is the figure Monthly Payroll sums, and
+    // Required only for Outsourced — this is the figure Monthly Payroll sums, and
     // that figure is deliberately scoped to the supplied workforce we pay
     // ourselves, never a Subcontracted worker's pay (see dashboard.service.js).
     salary: { type: Number, required: requiredForOwnPayroll, min: 0 },
@@ -148,7 +148,7 @@ const employeeSchema = new mongoose.Schema(
     coordinator: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     // The Admin/Manager this employee reports to — universal across both
     // types: every 'Own' employee has one (Coordinator/HR/IT/Office all
-    // report to a Manager), and a 'Client' employee may have one too,
+    // report to a Manager), and an 'Outsourced' employee may have one too,
     // alongside or instead of a coordinator. Referential integrity (must be
     // Admin or Manager) is checked in the service layer, same as coordinator.
     manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

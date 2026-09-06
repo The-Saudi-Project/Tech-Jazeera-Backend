@@ -109,7 +109,7 @@ function recomputeRunTotals(run) {
 
 /**
  * Build a Draft PayrollRun for (year, month). Eligible employees mirror the
- * dashboard's existing "Monthly Payroll" figure exactly (type: 'Client',
+ * dashboard's existing "Monthly Payroll" figure exactly (type: 'Outsourced',
  * not Exited, a salary on file) — reusing that established business rule
  * rather than inventing a second one.
  */
@@ -120,12 +120,12 @@ export async function createPayrollRun({ periodYear, periodMonth }, actor) {
   }
 
   const employees = await Employee.find({
-    type: 'Client',
+    type: 'Outsourced',
     status: { $ne: 'Exited' },
     salary: { $gt: 0 },
   }).lean();
   if (employees.length === 0) {
-    throw new ApiError(400, 'No employees are eligible for payroll (Client type, active, with a salary on file).');
+    throw new ApiError(400, 'No employees are eligible for payroll (Outsourced type, active, with a salary on file).');
   }
 
   const monthStart = new Date(Date.UTC(periodYear, periodMonth - 1, 1));

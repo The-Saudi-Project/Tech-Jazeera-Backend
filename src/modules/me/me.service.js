@@ -8,6 +8,7 @@ import Document from '../documents/document.model.js';
 import * as documentService from '../documents/document.service.js';
 import Employee from '../employees/employee.model.js';
 import ApiError from '../../utils/ApiError.js';
+import { logAudit } from '../audit/audit.service.js';
 import * as leaveService from '../leave/leave.service.js';
 import * as attendanceService from '../attendance/attendance.service.js';
 import * as advanceService from '../financialRequests/advance.service.js';
@@ -24,6 +25,35 @@ export async function getMyProfile(employeeId) {
     .populate('coordinator', 'name email')
     .lean();
   if (!employee) throw new ApiError(404, 'Employee record not found.');
+  return employee;
+}
+
+/**
+ * Self-edit (Milestone 4) — contact-info fields only, validated narrowly by
+ * me.validation.js's updateMyProfileSchema before this ever runs. A plain
+ * object update implicitly becomes a Mongoose $set; a whole-object
+ * emergencyContact replaces the nested subdocument wholesale (same
+ * convention as the admin employee.service.js:updateEmployee), which is why
+ * the client always resubmits all three sub-fields together.
+ */
+export async function updateMyProfile(employeeId, body, actor) {
+  const employee = await Employee.findByIdAndUpdate(employeeId, body, {
+    new: true,
+    runValidators: true,
+  })
+    .populate('currentClient', 'companyName')
+    .populate('coordinator', 'name email')
+    .lean();
+  if (!employee) throw new ApiError(404, 'Employee record not found.');
+
+  await logAudit({
+    user: actor.userId,
+    action: 'me.profile.update',
+    targetType: 'Employee',
+    targetId: employee._id,
+    meta: { fields: Object.keys(body) },
+    ip: actor.ip,
+  });
   return employee;
 }
 
@@ -44,8 +74,8 @@ export async function getMyDocumentFile(employeeId, documentId, version) {
   return documentService.resolveFile(documentId, version);
 }
 
-export async function submitMyLeave(employeeId, body, actor) {
-  return leaveService.submitLeaveRequest(employeeId, body, actor);
+export async function submitMyLeave(employeeId, body, file, actor) {
+  return leaveService.submitLeaveRequest(employeeId, body, file, actor);
 }
 
 export async function listMyLeave(employeeId, query) {
@@ -54,6 +84,10 @@ export async function listMyLeave(employeeId, query) {
 
 export async function cancelMyLeave(employeeId, leaveRequestId, actor) {
   return leaveService.cancelLeaveRequest(leaveRequestId, { ...actor, employee: employeeId });
+}
+
+export async function getMyLeaveAttachmentFile(employeeId, id) {
+  return leaveService.getMyAttachmentFile(employeeId, id);
 }
 
 export async function punchMyAttendance(employeeId, body, actor) {

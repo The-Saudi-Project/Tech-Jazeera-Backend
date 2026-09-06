@@ -30,6 +30,12 @@ export async function getProfile(req, res) {
   res.json(new ApiResponse('Your profile.', employee));
 }
 
+/** PATCH /api/me — self-edit contact-info fields only — 200 → data: employee (refreshed) */
+export async function updateProfile(req, res) {
+  const employee = await meService.updateMyProfile(myEmployeeId(req), req.body, actor(req));
+  res.json(new ApiResponse('Your profile has been updated.', employee));
+}
+
 /** GET /api/me/documents — 200 → data: { items, total, page, pages } */
 export async function listDocuments(req, res) {
   const data = await meService.listMyDocuments(myEmployeeId(req), req.query);
@@ -54,9 +60,9 @@ export async function documentFile(req, res) {
   await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
-/** POST /api/me/leave — 201 → data: leave request (AutoApproved or PendingReview) */
+/** POST /api/me/leave (multipart: optional file + fields) — 201 → data: leave request */
 export async function submitLeave(req, res) {
-  const request = await meService.submitMyLeave(myEmployeeId(req), req.body, actor(req));
+  const request = await meService.submitMyLeave(myEmployeeId(req), req.body, req.file, actor(req));
   const message =
     request.status === 'AutoApproved' ? 'Leave request approved.' : 'Leave request submitted for review.';
   res.status(201).json(new ApiResponse(message, request));
@@ -66,6 +72,18 @@ export async function submitLeave(req, res) {
 export async function listLeave(req, res) {
   const data = await meService.listMyLeave(myEmployeeId(req), req.query);
   res.json(new ApiResponse('Your leave requests.', data));
+}
+
+/** GET /api/me/leave/:id/attachment — streams own attachment bytes only. */
+export async function leaveAttachment(req, res) {
+  const fileData = await meService.getMyLeaveAttachmentFile(myEmployeeId(req), req.params.id);
+  res.setHeader('Content-Type', fileData.mimeType);
+  res.setHeader('Content-Disposition', contentDisposition(fileData.originalName));
+  const upstream = await fetch(fileData.url);
+  if (!upstream.ok || !upstream.body) {
+    throw new ApiError(410, 'The stored attachment is no longer available.');
+  }
+  await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
 /** PATCH /api/me/leave/:id/cancel — 200 → data: leave request */
