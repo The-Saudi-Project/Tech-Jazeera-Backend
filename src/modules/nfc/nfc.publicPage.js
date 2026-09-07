@@ -46,6 +46,10 @@ const ICON = {
   phone: 'M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z',
   whatsapp: 'M12 2.25c-5.385 0-9.75 4.365-9.75 9.75 0 1.72.446 3.336 1.228 4.74L2.25 21.75l5.13-1.2A9.7 9.7 0 0012 21.75c5.385 0 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25z',
   email: 'M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0-8.57 5.27a2.25 2.25 0 01-2.36 0L2.25 6.75',
+  // A briefcase, not an envelope — the "company mail" distinction from the
+  // primary Email row is deliberately a different shape, not just a
+  // different colour, so it still reads correctly at a glance/in a screenshot.
+  altEmail: 'M9 6.75V5.25A2.25 2.25 0 0111.25 3H12.75A2.25 2.25 0 0115 5.25V6.75M5.25 6.75H18.75A2.25 2.25 0 0121 9V16.5A2.25 2.25 0 0118.75 18.75H5.25A2.25 2.25 0 013 16.5V9A2.25 2.25 0 015.25 6.75ZM3 12.75H21',
   web: 'M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5 0 4-4 4-9s-1.5-9-4-9-4 4-4 9 1.5 9 4 9zM3 12h18',
   linkedin: 'M6.5 8.25A1.75 1.75 0 106.5 4.75a1.75 1.75 0 000 3.5zM5 10.5h3v9H5v-9zm5 0h2.9v1.23h.04c.4-.76 1.38-1.56 2.85-1.56 3.05 0 3.61 2 3.61 4.61v4.72h-3v-4.18c0-1 0-2.28-1.39-2.28s-1.6 1.09-1.6 2.21v4.25h-3v-9z',
   location: 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0zM19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
@@ -262,6 +266,7 @@ export function renderProfilePage({ employee, company, cardUrl, vcardUrl, cardIm
     action({ icon: ICON.phone, label: UI_STRINGS.en.call, labelAr: UI_STRINGS.ar.call, href: telHref, track: 'call' }) +
     action({ icon: ICON.whatsapp, label: UI_STRINGS.en.whatsapp, labelAr: UI_STRINGS.ar.whatsapp, href: waNumber ? `https://wa.me/${digits(waNumber)}` : '', track: 'whatsapp' }) +
     action({ icon: ICON.email, label: UI_STRINGS.en.email, labelAr: UI_STRINGS.ar.email, href: employee.email ? `mailto:${employee.email}` : '', track: 'email' }) +
+    action({ icon: ICON.altEmail, label: UI_STRINGS.en.altEmail, labelAr: UI_STRINGS.ar.altEmail, href: employee.altEmail ? `mailto:${employee.altEmail}` : '', track: 'altEmail' }) +
     action({ icon: ICON.web, label: UI_STRINGS.en.website, labelAr: UI_STRINGS.ar.website, href: website, track: 'website', blank: true }) +
     action({ icon: ICON.linkedin, label: UI_STRINGS.en.linkedin, labelAr: UI_STRINGS.ar.linkedin, href: linkedin, track: 'linkedin', filled: true, blank: true }) +
     action({ icon: ICON.location, label: UI_STRINGS.en.location, labelAr: UI_STRINGS.ar.location, href: mapHref, track: 'location', blank: true });

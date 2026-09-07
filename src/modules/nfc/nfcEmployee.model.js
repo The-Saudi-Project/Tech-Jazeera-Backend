@@ -25,6 +25,10 @@ const nfcEmployeeSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     whatsapp: { type: String, trim: true },
     email: { type: String, trim: true, lowercase: true },
+    // A second, optional email (e.g. a work/company address distinct from
+    // the primary one above) — shown on the public page as its own tappable
+    // row with a different icon, so a visitor can tell the two apart.
+    altEmail: { type: String, trim: true, lowercase: true, default: null },
     linkedin: { type: String, trim: true },
     bio: { type: String, trim: true, maxlength: 600 },
     bioAr: { type: String, trim: true, maxlength: 600, default: null },

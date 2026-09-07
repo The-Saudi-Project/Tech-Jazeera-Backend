@@ -27,7 +27,7 @@ import mongoose from 'mongoose';
 export const NFC_EVENT_TYPES = ['view', 'save', 'image', 'click'];
 
 /** The tappable rows on the card, mirroring nfc.publicPage.js. */
-export const NFC_CLICK_TARGETS = ['call', 'whatsapp', 'email', 'website', 'linkedin', 'location'];
+export const NFC_CLICK_TARGETS = ['call', 'whatsapp', 'email', 'altEmail', 'website', 'linkedin', 'location'];
 
 export const NFC_DEVICE_TYPES = ['mobile', 'tablet', 'desktop'];
 

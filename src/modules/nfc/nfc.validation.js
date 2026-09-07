@@ -47,6 +47,7 @@ export const createEmployeeSchema = z.object({
   phone: optionalStr(30),
   whatsapp: optionalStr(30),
   email: optionalEmail,
+  altEmail: optionalEmail,
   linkedin: optionalStr(200),
   bio: optionalStr(600),
   bioAr: optionalStr(600),

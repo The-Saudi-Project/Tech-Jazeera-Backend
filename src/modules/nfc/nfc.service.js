@@ -321,6 +321,7 @@ export async function getPublicCardByToken(token) {
       phone: e.phone ?? '',
       whatsapp: e.whatsapp ?? '',
       email: e.email ?? '',
+      altEmail: e.altEmail ?? '',
       linkedin: e.linkedin ?? '',
       bio: e.bio ?? '',
       bioAr: e.bioAr ?? '',

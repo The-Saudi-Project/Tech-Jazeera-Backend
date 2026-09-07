@@ -10,6 +10,7 @@
  * own "always reflects current data" posture, and means an admin edit
  * (including a *Ar field) shows up on the very next download.
  */
+import sharp from 'sharp';
 import { generatePremiumQrSvg, lighten, svgToPng } from './nfc.qr.js';
 import { UI_STRINGS, pickLang } from './nfc.i18n.js';
 import logger from '../../config/logger.js';
@@ -48,7 +49,13 @@ async function fetchImageAsDataUri(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`status ${res.status}`);
     const contentType = res.headers.get('content-type') || 'image/png';
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
+    // Rotate per the file's own EXIF orientation tag (common on phone-shot
+    // logos/photos) and strip it — every browser honours that tag when
+    // showing the source image, but librsvg (the rasterizer behind
+    // svgToPng) does not, so an un-rotated embed comes out sideways/upside
+    // down even though the file looks correct everywhere else.
+    const buffer = await sharp(rawBuffer).rotate().toBuffer();
     return `data:${contentType};base64,${buffer.toString('base64')}`;
   } catch (err) {
     logger.warn(`[nfc] failed to fetch image for card download: ${err.message}`);
@@ -151,6 +158,7 @@ export async function buildCardImagePng({ employee, company, lang, cardUrl, logo
     { label: strings.call, value: employee.phone },
     { label: strings.whatsapp, value: employee.whatsapp || employee.phone },
     { label: strings.email, value: employee.email },
+    { label: strings.altEmail, value: employee.altEmail },
     { label: strings.website, value: company?.website },
   ].filter((row) => row.value);
 
@@ -175,10 +183,6 @@ export async function buildCardImagePng({ employee, company, lang, cardUrl, logo
   y += qrSize + 36;
   parts.push(
     `<text x="${cx}" y="${y}" text-anchor="middle" font-family="${font}" font-size="22" font-weight="600" fill="${muted}">${esc(strings.scan)}</text>`
-  );
-  y += 34;
-  parts.push(
-    `<text x="${cx}" y="${y}" text-anchor="middle" direction="ltr" font-family="${FONT_LATIN}" font-size="18" fill="${muted}">${esc(cardUrl.replace(/^https?:\/\//, ''))}</text>`
   );
   y += BOTTOM_PADDING;
 
