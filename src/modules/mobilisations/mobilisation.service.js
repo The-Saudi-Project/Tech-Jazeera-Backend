@@ -24,7 +24,7 @@ import {
   membersOfRoles,
   annotateCanDecide,
 } from '../approvals/approvalEngine.service.js';
-import { getMobilisationSettings } from '../mobilisationSettings/mobilisationSettings.service.js';
+import { canAccessSection, getSectionAccess } from '../sectionAccess/sectionAccess.service.js';
 import { signedDownloadUrl, destroyDocumentFile } from '../../middleware/upload.js';
 import { nextSequence } from '../quotations/counter.model.js';
 
@@ -88,8 +88,8 @@ const POPULATE = [
 // themselves at creation. Stripped from their own view only once the record
 // is Approved: they see everything they typed while it's still Draft/
 // PendingReview/Rejected, but the finalized commercial picture is
-// management-only from that point on. Admin and any
-// MobilisationSettings.viewerRoles member always see everything.
+// management-only from that point on. Admin and any 'mobilisationsViewer'
+// Section Access member always see everything.
 const COMMERCIAL_FIELDS = [
   'clientRate',
   'clientCommission',
@@ -108,8 +108,9 @@ const COMMERCIAL_FIELDS = [
 // client's actual timesheet hours, overtime, their remark). A plain
 // Coordinator never entered any of this themselves — unlike Section 1
 // above, it is stripped from their view UNCONDITIONALLY, at every status,
-// not just once Approved. Visible only to Admin, a viewerRoles member, or
-// whoever is actually authorized for the current step right now. See
+// not just once Approved. Visible only to Admin, a 'mobilisationsViewer'
+// Section Access member, or whoever is actually authorized for the current
+// step right now. See
 // saveCommercialDetails below, which writes exactly this field list.
 const REVIEW_FIELDS = [
   'clientTimesheetHours',
@@ -200,6 +201,24 @@ async function myRoleIds(userId) {
   return roles.map((r) => r._id);
 }
 
+/** The 'mobilisationsViewer' Section Access circle — a literal login-role
+ *  match, or membership in one of its granted ApprovalRoles. Shared by
+ *  listMobilisations' visibility filter and getMobilisation's single-record
+ *  access check. `precomputedRoleIds` lets a caller that already ran
+ *  myRoleIds() for its own purposes (listMobilisations, for the PendingReview
+ *  step-reviewer check) reuse it instead of a second, less targeted query;
+ *  getMobilisation has no such list lying around, so it falls through to
+ *  isMemberOfAnyRole's single indexed lookup instead. */
+async function isMobilisationViewer(actor, precomputedRoleIds) {
+  const settings = await getSectionAccess('mobilisationsViewer');
+  if (settings.allowedRoles.includes(actor.role)) return true;
+  if (!settings.allowedApprovalRoles.length) return false;
+  if (precomputedRoleIds) {
+    return precomputedRoleIds.some((r) => settings.allowedApprovalRoles.some((v) => v.toString() === r.toString()));
+  }
+  return isMemberOfAnyRole(actor.userId, settings.allowedApprovalRoles);
+}
+
 /**
  * Minimal, purpose-scoped lookup for the "invite a joint coordinator"
  * picker. `/api/users` (the general staff directory) is Admin/Manager/HR
@@ -246,10 +265,7 @@ async function assertNoActivePlacement(workerId) {
 }
 
 export async function createMobilisation(data, actor) {
-  const allowed =
-    actor.role === 'Admin' ||
-    actor.role === 'Coordinator' ||
-    (await isMemberOfAnyRole(actor.userId, (await getMobilisationSettings()).selfMobiliseRoles));
+  const allowed = await canAccessSection('mobilisationsSelfMobilise', actor);
   if (!allowed) {
     throw new ApiError(403, 'You do not have permission to create a mobilisation.');
   }
@@ -329,12 +345,12 @@ export async function completeMobilisation(id, actor) {
  * Visibility (M4): Admin sees everything. Everyone else sees a mobilisation
  * if ANY of —
  *  - they're a coordinator on it (any status),
- *  - they're a MobilisationSettings.viewerRoles member and it's past Draft
+ *  - they're a 'mobilisationsViewer' Section Access member and it's past Draft
  *    (BDM's immediate "read on version" once submitted; the full MM/BDM/FM/
  *    COO/GM circle after approval — one mechanism for both),
  *  - they hold a role in the CURRENT step's pool while it's PendingReview
  *    (so the Marketing Manager can find their review queue even before an
- *    Admin has also added them to viewerRoles).
+ *    Admin has also granted them 'mobilisationsViewer' Section Access).
  * REVIEW_FIELDS (Section 2 — the current-step reviewer's own quotation/PO/
  * OT/timesheet work) is stripped for a plain coordinator unconditionally;
  * COMMERCIAL_FIELDS (Section 1 — what the coordinator typed themselves) only
@@ -355,8 +371,7 @@ export async function listMobilisations(query, actor) {
   let roleIds = [];
   if (actor.role !== 'Admin') {
     roleIds = await myRoleIds(actor.userId);
-    const settings = await getMobilisationSettings();
-    isViewer = roleIds.some((r) => settings.viewerRoles.some((v) => v.toString() === r.toString()));
+    isViewer = await isMobilisationViewer(actor, roleIds);
 
     const visibility = [{ 'coordinators.user': actor.userId }];
     if (isViewer) visibility.push({ status: { $ne: 'Draft' } });
@@ -400,10 +415,7 @@ export async function getMobilisation(id, actor) {
   let visible = mobilisation;
   if (actor.role !== 'Admin') {
     const isCoordinator = mobilisation.coordinators.some((c) => c.user._id.toString() === actor.userId);
-    const settings = await getMobilisationSettings();
-    const isViewer = settings.viewerRoles.length
-      ? await isMemberOfAnyRole(actor.userId, settings.viewerRoles)
-      : false;
+    const isViewer = await isMobilisationViewer(actor);
     const isViewerAllowed = isViewer && mobilisation.status !== 'Draft';
 
     let isStepReviewer = false;

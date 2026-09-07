@@ -22,6 +22,8 @@ const DEFAULT_ALLOWED_ROLES = {
   expenses: ['Accounts'],
   employeeCreate: [],
   companySettings: ['Manager'],
+  mobilisationsViewer: [],
+  mobilisationsSelfMobilise: ['Coordinator'],
 };
 
 const SECTION_LABELS = {
@@ -29,6 +31,8 @@ const SECTION_LABELS = {
   expenses: 'Expenses',
   employeeCreate: 'Adding employees',
   companySettings: 'Company Settings',
+  mobilisationsViewer: 'Mobilisations — full visibility',
+  mobilisationsSelfMobilise: 'Mobilisations — self-mobilise',
 };
 
 const SECTION_DESCRIPTIONS = {
@@ -36,6 +40,10 @@ const SECTION_DESCRIPTIONS = {
   expenses: 'Recording and managing the company expense ledger.',
   employeeCreate: 'Creating a new employee record — Admin only until you grant someone else this specifically.',
   companySettings: "Editing the company's legal/contact/bank identity and logo — printed on every generated document.",
+  mobilisationsViewer:
+    'Read-only access to every mobilisation once submitted (not while still a Draft), including commercial fields.',
+  mobilisationsSelfMobilise:
+    'Can create a mobilisation directly as its own primary coordinator. Coordinator logins are granted this by default, but it can be changed here.',
 };
 
 function defaultFor(sectionKey) {

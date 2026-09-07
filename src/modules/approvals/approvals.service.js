@@ -194,11 +194,12 @@ export async function isApprovalRoleMember(userId) {
 /**
  * Is `userId` a member of any role in `roleIds` — a generalization of
  * isApprovalRoleMember to a specific SUBSET of roles, for callers that need
- * "one of THESE roles," not "any role at all." Used by
- * mobilisations/mobilisation.service.js for both the self-mobilise gate
- * (MobilisationSettings.selfMobiliseRoles) and the read-only viewer circle
- * (MobilisationSettings.viewerRoles) — one query shape, reused twice, rather
- * than inventing a per-feature membership check.
+ * "one of THESE roles," not "any role at all." Used throughout for a Section
+ * Access `allowedApprovalRoles` membership check (see sectionAccess.
+ * service.js's canAccessSection), including mobilisations/mobilisation.
+ * service.js's read-only viewer circle ('mobilisationsViewer') — one query
+ * shape, reused everywhere, rather than inventing a per-feature membership
+ * check.
  */
 export async function isMemberOfAnyRole(userId, roleIds) {
   if (!roleIds?.length) return false;

@@ -8,7 +8,7 @@ const actor = (req) => ({ userId: req.user.id, ip: req.ip });
 
 /** GET /api/mobilisation-settings   (Admin) */
 export async function get(req, res) {
-  const settings = await settingsService.getMobilisationSettingsPopulated();
+  const settings = await settingsService.getMobilisationSettings();
   res.json(new ApiResponse('Mobilisation settings.', settings));
 }
 

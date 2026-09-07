@@ -22,7 +22,14 @@ import { ROLES } from '../auth/user.model.js';
 /** Every section this mechanism currently governs. Add a key here (and a
  *  default in sectionAccess.service.js) to bring a new page under
  *  admin-configurable access without touching this model again. */
-export const SECTION_KEYS = ['payroll', 'expenses', 'employeeCreate', 'companySettings'];
+export const SECTION_KEYS = [
+  'payroll',
+  'expenses',
+  'employeeCreate',
+  'companySettings',
+  'mobilisationsViewer',
+  'mobilisationsSelfMobilise',
+];
 
 /** Worker/Staff (the ESS self-service personas) are never grantable here —
  *  same floor requireStaff/requireStaffOrExecutive enforce everywhere else.
