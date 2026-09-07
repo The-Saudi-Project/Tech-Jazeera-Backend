@@ -172,9 +172,9 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .download:active{transform:scale(0.98)}
 .download svg{width:18px;height:18px}
 
-.actions{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:12px;margin-top:16px;padding-bottom:12px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.actions{display:grid;grid-template-rows:repeat(2,1fr);grid-auto-flow:column;grid-auto-columns:calc(33.333% - 8px);gap:12px;margin-top:16px;padding-bottom:12px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 .actions::-webkit-scrollbar{display:none;}
-.act{flex:0 0 30%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px 4px;border-radius:24px;text-decoration:none;color:var(--text);
+.act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px 4px;border-radius:24px;text-decoration:none;color:var(--text);
  background:var(--btn-bg);border:1px solid var(--hair);box-shadow:0 8px 24px rgba(0,0,0,0.2);transition:all 0.25s var(--ease);animation:pop 0.5s var(--ease) both;}
 .act:hover{transform:translateY(-5px) scale(1.05);background:rgba(255,255,255,0.05);border-color:color-mix(in oklab,var(--brand) 40%,transparent);box-shadow:0 12px 32px rgba(0,0,0,0.3), 0 0 20px var(--icon-bg);}
 .act:active{transform:scale(0.95)}
@@ -220,10 +220,10 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
   .org{font-size:10px;letter-spacing:0.03em}
   .ava{width:76px;height:76px;font-size:26px;margin-bottom:10px}
   .logo{max-height:40px;margin-bottom:8px}
-  .logo-hero{max-height:90px;margin-bottom:16px}
-  .actions{gap:6px;margin-top:10px}
-  .act{padding:10px 2px;border-radius:16px}
-  .act .ic{width:36px;height:36px}
+  .logo-hero{max-height:80px;margin-bottom:12px}
+  .actions{gap:6px;margin-top:8px}
+  .act{padding:8px 2px;gap:6px;border-radius:16px}
+  .act .ic{width:34px;height:34px}
   .act span:last-child{font-size:10px}
   .save{padding:12px;font-size:14px;border-radius:16px}
   .rule{margin:10px 0}
