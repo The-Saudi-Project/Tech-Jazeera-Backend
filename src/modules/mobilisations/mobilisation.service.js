@@ -201,6 +201,20 @@ export async function listCoordinatorCandidates() {
   return User.find({ role: 'Coordinator' }).select('name').sort({ name: 1 }).lean();
 }
 
+/**
+ * Live autocomplete source for the free-typed worker-identity fields
+ * (SupplierEmployee/Freelancer workers never get an Employee record — see
+ * mobilisation.model.js). Deliberately lighter than the JobTitle picklist:
+ * no managed collection, no permission gate on write (there's no write path
+ * at all), just "what's been typed before" — a suggestion aid, not a
+ * validated enum, same spirit as EmployeeForm's static Nationality
+ * `<datalist>` but sourced live instead of from a hardcoded list.
+ */
+export async function getFieldSuggestions(field) {
+  const values = await Mobilisation.distinct(field, { [field]: { $nin: [null, ''] } });
+  return values.sort((a, b) => a.localeCompare(b)).slice(0, 100);
+}
+
 /** A worker may have at most one ACTIVE placement at a time — Draft/
  *  PendingReview/Approved all count; Rejected/Completed don't (a rejected
  *  one is dead until resubmitted, a completed one has already released the
@@ -321,7 +335,7 @@ export async function listMobilisations(query, actor) {
   if (worker) conditions.push({ worker });
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
-    conditions.push({ $or: [{ workerName: rx }, { clientName: rx }, { jobTitle: rx }] });
+    conditions.push({ $or: [{ workerName: rx }, { clientName: rx }, { jobTitle: rx }, { serialNumber: rx }] });
   }
 
   let isViewer = false;
@@ -616,6 +630,7 @@ export async function submitMobilisation(id, actor) {
     mobilisation.steps = undefined;
   }
   mobilisation.currentStep = 0;
+  mobilisation.currentStepEnteredAt = new Date();
   await mobilisation.save();
 
   await logAudit({
@@ -641,7 +656,11 @@ export async function submitMobilisation(id, actor) {
 }
 
 // ---------------------------------------------------------------------------
-// M3 — Marketing Manager review: commercial-details + decide
+// M3 — current-step reviewer's Section 2: quotation/PO, overtime, actual
+// timesheet hours, remark (Office Secretary first, then Marketing Manager,
+// once an Admin configures that multi-step workflow — see decideMobilisation
+// below; the field list has never been Marketing-Manager-specific, only the
+// name of this comment block was)
 // ---------------------------------------------------------------------------
 
 const COMMERCIAL_DETAIL_FIELDS = [
@@ -652,12 +671,26 @@ const COMMERCIAL_DETAIL_FIELDS = [
   'subQuotation',
   'subQuotationDate',
   'subPO',
+  'subPODate',
+  'clientTimesheetHours',
+  'otHours',
+  'otClientRate',
+  'otClientCommission',
+  'otSubcontractorRate',
+  'otSubcontractorCommission',
+  'remark',
 ];
 
-/** Section 2 — filled by whoever is authorized for the CURRENT step (the
- *  Marketing Manager, or Admin), PendingReview only. Does not touch status —
- *  deciding is a separate call, since the shared decide engine only ever
- *  mutates status/decidedBy/approvalTrail (see approvalEngine.service.js). */
+/** Section 2 — filled by whoever is authorized for the CURRENT step (Office
+ *  Secretary, then Marketing Manager, or Admin), PendingReview only. Does
+ *  not touch status — deciding is a separate call, since the shared decide
+ *  engine only ever mutates status/decidedBy/approvalTrail (see
+ *  approvalEngine.service.js). Every field is individually optional — a
+ *  reviewer fills in what they have as it arrives (the client's quotation
+ *  today, the actual timesheet hours once the client's timesheet itself
+ *  arrives, overtime once that's known). Recomputes profitPerHour/
+ *  profitPerMonth/otProfit* on save since clientTimesheetHours and every OT
+ *  field feed directly into that formula. */
 export async function saveCommercialDetails(id, data, actor) {
   const mobilisation = await Mobilisation.findById(id);
   if (!mobilisation) throw new ApiError(404, 'Mobilisation not found.');
@@ -673,6 +706,7 @@ export async function saveCommercialDetails(id, data, actor) {
   for (const field of COMMERCIAL_DETAIL_FIELDS) {
     if (field in data) mobilisation[field] = data[field];
   }
+  applyProfitFields(mobilisation);
   await mobilisation.save();
 
   await logAudit({
@@ -699,7 +733,7 @@ export async function saveCommercialDetails(id, data, actor) {
  * type's legacy fallback.
  */
 export async function decideMobilisation(id, { status, decisionNote }, actor) {
-  return decideApprovalStep({
+  const result = await decideApprovalStep({
     Model: Mobilisation,
     id,
     decision: status,
@@ -720,6 +754,21 @@ export async function decideMobilisation(id, { status, decisionNote }, actor) {
       await Promise.all(memberIds.map((userId) => notifyUser(userId, notification)));
     },
   });
+
+  // Approving a non-last step leaves status PendingReview and advances
+  // currentStep — record when the record entered whatever step it's now on,
+  // for mobilisationStale.job.js. A small, self-correcting follow-up write
+  // (guarded by the exact currentStep the engine just set) rather than
+  // teaching the shared engine about a field only this caller needs — it's
+  // reused by 6 other request types that have no use for it.
+  if (result.status === 'PendingReview') {
+    await Mobilisation.updateOne(
+      { _id: id, currentStep: result.currentStep },
+      { $set: { currentStepEnteredAt: new Date() } }
+    );
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -735,16 +784,39 @@ function assertDocumentsEditable(mobilisation) {
   }
 }
 
-function assertCanTouchDocuments(mobilisation, actor) {
+function isCoordinatorOnRecord(mobilisation, actor) {
+  return mobilisation.coordinators.some((c) => c.user.toString() === actor.userId);
+}
+
+/** Deleting a document stays Admin/coordinator only — a current-step
+ *  reviewer (e.g. Office Secretary) who isn't a coordinator can attach a
+ *  file but never remove one someone else uploaded (your own call: "they
+ *  shouldn't be able to delete what was uploaded"). */
+function assertCanDeleteDocuments(mobilisation, actor) {
   if (actor.role === 'Admin') return;
-  const isCoordinator = mobilisation.coordinators.some((c) => c.user.toString() === actor.userId);
-  if (!isCoordinator) throw new ApiError(403, 'You do not have access to this mobilisation.');
+  if (!isCoordinatorOnRecord(mobilisation, actor)) {
+    throw new ApiError(403, 'You do not have access to this mobilisation.');
+  }
+}
+
+/** Adding a document is wider: Admin, any coordinator, OR whoever is
+ *  authorized for the CURRENT approval step while PendingReview — so Office
+ *  Secretary can attach the client's timesheet/PO themselves, the same
+ *  "whoever's turn it is" mechanism saveCommercialDetails already uses. */
+async function assertCanAddDocuments(mobilisation, actor) {
+  if (actor.role === 'Admin' || isCoordinatorOnRecord(mobilisation, actor)) return;
+  if (mobilisation.status === 'PendingReview') {
+    const stepRoleIds = mobilisation.steps?.[mobilisation.currentStep]?.roles ?? [];
+    const { authorized } = await resolveStepAuthority(actor, stepRoleIds);
+    if (authorized) return;
+  }
+  throw new ApiError(403, 'You do not have access to this mobilisation.');
 }
 
 export async function addDocuments(id, files, category, actor) {
   const mobilisation = await Mobilisation.findById(id);
   if (!mobilisation) throw new ApiError(404, 'Mobilisation not found.');
-  assertCanTouchDocuments(mobilisation, actor);
+  await assertCanAddDocuments(mobilisation, actor);
   assertDocumentsEditable(mobilisation);
   if (!files?.length) throw new ApiError(400, 'Attach at least one file.');
 
@@ -776,7 +848,7 @@ export async function addDocuments(id, files, category, actor) {
 export async function removeDocument(id, fileId, actor) {
   const mobilisation = await Mobilisation.findById(id);
   if (!mobilisation) throw new ApiError(404, 'Mobilisation not found.');
-  assertCanTouchDocuments(mobilisation, actor);
+  assertCanDeleteDocuments(mobilisation, actor);
   assertDocumentsEditable(mobilisation);
 
   const doc = mobilisation.documents.id(fileId);

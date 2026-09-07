@@ -99,6 +99,13 @@ export const mobilisationIdParamSchema = z.object({
   id: id('mobilisation'),
 });
 
+/** GET /mobilisations/suggestions?field=... — the free-typed worker-identity
+ *  fields only (SupplierEmployee/Freelancer have no Employee record to pick
+ *  from, so these are typed directly — see mobilisation.model.js). */
+export const mobilisationSuggestionQuerySchema = z.object({
+  field: z.enum(['workerName', 'iqamaNumber', 'nationality', 'trade']),
+});
+
 export const mobilisationCoordinatorParamSchema = z.object({
   id: id('mobilisation'),
   userId: id('user'),

@@ -13,6 +13,7 @@ import logger from './config/logger.js';
 import { connectDb } from './config/db.js';
 import app from './app.js';
 import { runExpiryAlertCheck } from './modules/notifications/expiryAlert.job.js';
+import { runMobilisationStaleCheck } from './modules/notifications/mobilisationStale.job.js';
 
 try {
   await connectDb();
@@ -39,6 +40,13 @@ const expiryAlertInterval = setInterval(
   ONE_DAY_MS
 );
 
+// Same pattern, offset by 15s so the two jobs' initial runs don't overlap.
+setTimeout(() => runMobilisationStaleCheck().catch((err) => logger.error(`[mobilisationStaleJob] failed: ${err.message}`)), 15_000);
+const mobilisationStaleInterval = setInterval(
+  () => runMobilisationStaleCheck().catch((err) => logger.error(`[mobilisationStaleJob] failed: ${err.message}`)),
+  ONE_DAY_MS
+);
+
 /**
  * Graceful shutdown: stop accepting new connections, let in-flight requests
  * finish, then close the DB connection. Without this, a deploy/restart can
@@ -47,6 +55,7 @@ const expiryAlertInterval = setInterval(
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully...`);
   clearInterval(expiryAlertInterval);
+  clearInterval(mobilisationStaleInterval);
   server.close(async () => {
     const { default: mongoose } = await import('mongoose');
     await mongoose.connection.close();

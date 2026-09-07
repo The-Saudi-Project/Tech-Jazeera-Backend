@@ -13,7 +13,13 @@ import ExitReentryRequest from '../exitDocuments/exitReentry.model.js';
 import CertificateRequest from '../exitDocuments/certificate.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
-import { STAFF_ROLES } from '../../middleware/rbac.js';
+
+// Not STAFF_ROLES (rbac.js) — that constant also excludes Executive and
+// Office Secretary, but both are legitimate ApprovalRole members (in fact
+// it's their ONLY route into deciding anything, since both are deny-by-
+// default at the router level). Only the two purely self-service personas,
+// Worker and Staff, can never sit in an approval chain.
+const SELF_SERVICE_ROLES = ['Worker', 'Staff'];
 
 // ---------------------------------------------------------------------------
 // ApprovalRole
@@ -23,11 +29,11 @@ export async function listApprovalRoles() {
   return ApprovalRole.find().sort({ name: 1 }).populate('members', 'name email role').lean();
 }
 
-/** Every member must be a real, staff (non-Worker) User account. */
+/** Every member must be a real, non-self-service User account. */
 async function assertValidMembers(memberIds = []) {
   if (memberIds.length === 0) return;
   const uniqueIds = [...new Set(memberIds.map(String))];
-  const count = await User.countDocuments({ _id: { $in: uniqueIds }, role: { $in: STAFF_ROLES } });
+  const count = await User.countDocuments({ _id: { $in: uniqueIds }, role: { $nin: SELF_SERVICE_ROLES } });
   if (count !== uniqueIds.length) {
     throw new ApiError(400, 'One or more selected members are not valid staff accounts.');
   }

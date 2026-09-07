@@ -18,6 +18,12 @@
  * directly as its own primary coordinator, in addition to any User.role
  * 'Coordinator' (e.g. BDM/Marketing Manager self-mobilising, per the
  * original requirement).
+ *
+ * `officeSecretaryStaleDays` — how long a mobilisation may sit PendingReview
+ * with no decision before mobilisationStale.job.js warns every Manager
+ * login. Default 180 (~6 months), matching the original ask. Named for the
+ * usual first step (Office Secretary review), but the check itself is
+ * step-agnostic — see the job's own doc comment for why.
  */
 import mongoose from 'mongoose';
 
@@ -25,6 +31,7 @@ const mobilisationSettingsSchema = new mongoose.Schema(
   {
     viewerRoles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }], default: [] },
     selfMobiliseRoles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }], default: [] },
+    officeSecretaryStaleDays: { type: Number, default: 180, min: 1, max: 3650 },
   },
   { timestamps: true }
 );

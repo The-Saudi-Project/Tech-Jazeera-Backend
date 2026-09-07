@@ -53,10 +53,18 @@ import mongoose from 'mongoose';
  * offer, not a deliberate choice for those titles.
  *
  * `Operations` and `Viewer` were removed after P2-M2 — never had a real
- * account and weren't part of the intended role set going forward. IT and
- * Office Staff are Employee.designation values, not roles — someone in
- * either position logs in as whichever of the roles above actually matches
- * their system access (typically HR, Accounts, or the self-service `Staff`).
+ * account and weren't part of the intended role set going forward. IT is an
+ * Employee.designation value, not a role — someone in that position logs in
+ * as whichever of the roles above actually matches their system access
+ * (typically HR, Accounts, or the self-service `Staff`).
+ *
+ * `Office Secretary` (added for the Mobilisation module's post-Coordinator
+ * review stage) is narrow like `Executive`, NOT `Coordinator` — excluded
+ * from STAFF_ROLES (see rbac.js), so it is denied every CRUD module by
+ * default. It reaches a specific mobilisation only by being an ApprovalRole
+ * member on that record's current workflow step — the same mechanism
+ * Marketing Manager already used before this role existed — never a blanket
+ * company-wide grant. See `requireStaffOrOfficeSecretary` in rbac.js.
  */
 export const ROLES = [
   'Admin',
@@ -65,6 +73,7 @@ export const ROLES = [
   'Accounts',
   'Coordinator',
   'Executive',
+  'Office Secretary',
   'Staff',
   'Worker',
 ];

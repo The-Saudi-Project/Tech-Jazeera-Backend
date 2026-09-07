@@ -8,11 +8,23 @@ import ApprovalRole from '../approvals/approvalRole.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 
-const EMPTY = { viewerRoles: [], selfMobiliseRoles: [] };
+const EMPTY = { viewerRoles: [], selfMobiliseRoles: [], officeSecretaryStaleDays: 180 };
+
+// .lean() bypasses Mongoose's schema-level `default` entirely — it only
+// ever applies at document creation, not on every read — so a singleton
+// that existed before `officeSecretaryStaleDays` was added (this app's own
+// real production settings doc, notably) would read back `undefined`
+// forever until explicitly saved again. Normalized here so callers (the
+// stale-mobilisation job's date math, in particular) never see anything
+// but a real number.
+function withDefaults(settings) {
+  if (!settings) return EMPTY;
+  return { ...settings, officeSecretaryStaleDays: settings.officeSecretaryStaleDays ?? 180 };
+}
 
 export async function getMobilisationSettings() {
   const settings = await MobilisationSettings.findOne().lean();
-  return settings ?? EMPTY;
+  return withDefaults(settings);
 }
 
 /** Same shape, but with each role populated to {_id, name} for the admin UI. */
@@ -21,7 +33,7 @@ export async function getMobilisationSettingsPopulated() {
     .populate('viewerRoles', 'name')
     .populate('selfMobiliseRoles', 'name')
     .lean();
-  return settings ?? EMPTY;
+  return withDefaults(settings);
 }
 
 async function assertValidRoles(roleIds) {

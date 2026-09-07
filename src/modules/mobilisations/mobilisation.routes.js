@@ -1,17 +1,18 @@
 /**
  * Mobilisation routes.
  *
- * Only `requireStaff` at the router level: who may create/edit/decide a
- * mobilisation depends on ApprovalRole membership and document ownership
- * (coordinator/primary/current-step-reviewer), none of which is expressible
- * as a static `User.role` list — same reasoning as client.routes.js leaving
- * the finer rules to the service.
+ * `requireStaffOrOfficeSecretary` at the router level (broader than plain
+ * `requireStaff` — Office Secretary is otherwise deny-by-default, see
+ * rbac.js): who may create/edit/decide a mobilisation depends on ApprovalRole
+ * membership and document ownership (coordinator/primary/current-step-
+ * reviewer), none of which is expressible as a static `User.role` list —
+ * same reasoning as client.routes.js leaving the finer rules to the service.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireStaff } from '../../middleware/rbac.js';
+import { requireStaffOrOfficeSecretary } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadMultiple, destroyDocumentFile } from '../../middleware/upload.js';
 import {
@@ -25,17 +26,23 @@ import {
   decideMobilisationSchema,
   mobilisationDocumentCategorySchema,
   mobilisationDocumentParamSchema,
+  mobilisationSuggestionQuerySchema,
 } from './mobilisation.validation.js';
 import * as mobilisationController from './mobilisation.controller.js';
 
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireStaff);
+router.use(requireStaffOrOfficeSecretary);
 
 router.get('/', validate({ query: listMobilisationsSchema }), asyncHandler(mobilisationController.list));
-// Before the /:id catch-all, or "coordinators" is read as a mobilisation id.
+// Before the /:id catch-all, or these are read as a mobilisation id.
 router.get('/coordinators', asyncHandler(mobilisationController.listCoordinatorCandidates));
+router.get(
+  '/suggestions',
+  validate({ query: mobilisationSuggestionQuerySchema }),
+  asyncHandler(mobilisationController.suggestions)
+);
 router.get('/:id', validate({ params: mobilisationIdParamSchema }), asyncHandler(mobilisationController.get));
 router.post('/', validate({ body: createMobilisationSchema }), asyncHandler(mobilisationController.create));
 router.patch(

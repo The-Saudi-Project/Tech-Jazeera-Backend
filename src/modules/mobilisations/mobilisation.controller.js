@@ -19,6 +19,12 @@ export async function listCoordinatorCandidates(req, res) {
   res.json(new ApiResponse('Coordinators.', candidates));
 }
 
+/** GET /api/mobilisations/suggestions?field=... — 200 → data: string[] */
+export async function suggestions(req, res) {
+  const values = await mobilisationService.getFieldSuggestions(req.query.field);
+  res.json(new ApiResponse('Suggestions.', values));
+}
+
 /** GET /api/mobilisations — 200 → data: { items, total, page, pages } */
 export async function list(req, res) {
   const data = await mobilisationService.listMobilisations(req.query, actor(req));
