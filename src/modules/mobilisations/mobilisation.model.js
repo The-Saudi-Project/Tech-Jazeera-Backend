@@ -97,7 +97,6 @@ const mobilisationSchema = new mongoose.Schema(
     workerName: { type: String, required: true }, // snapshot of Employee.fullName, or direct entry
     iqamaNumber: { type: String, trim: true },
     nationality: { type: String, trim: true },
-    trade: { type: String, trim: true },
     phone: { type: String, trim: true },
     jobTitle: { type: String, required: true, trim: true, maxlength: 150 },
 

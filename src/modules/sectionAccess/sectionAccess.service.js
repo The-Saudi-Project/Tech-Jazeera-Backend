@@ -21,18 +21,21 @@ const DEFAULT_ALLOWED_ROLES = {
   payroll: ['Accounts'],
   expenses: ['Accounts'],
   employeeCreate: [],
+  companySettings: ['Manager'],
 };
 
 const SECTION_LABELS = {
   payroll: 'Payroll',
   expenses: 'Expenses',
   employeeCreate: 'Adding employees',
+  companySettings: 'Company Settings',
 };
 
 const SECTION_DESCRIPTIONS = {
   payroll: 'Monthly runs, payslips, and finalizing a period.',
   expenses: 'Recording and managing the company expense ledger.',
   employeeCreate: 'Creating a new employee record — Admin only until you grant someone else this specifically.',
+  companySettings: "Editing the company's legal/contact/bank identity and logo — printed on every generated document.",
 };
 
 function defaultFor(sectionKey) {

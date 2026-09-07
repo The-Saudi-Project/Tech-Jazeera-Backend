@@ -28,7 +28,6 @@ const mobilisationFields = {
   workerName: optionalStr(150),
   iqamaNumber: optionalStr(50),
   nationality: optionalStr(80),
-  trade: optionalStr(100),
   phone: optionalStr(30),
   jobTitle: z.string().trim().min(1, 'Job title is required.').max(150),
 
@@ -103,7 +102,7 @@ export const mobilisationIdParamSchema = z.object({
  *  fields only (SupplierEmployee/Freelancer have no Employee record to pick
  *  from, so these are typed directly — see mobilisation.model.js). */
 export const mobilisationSuggestionQuerySchema = z.object({
-  field: z.enum(['workerName', 'iqamaNumber', 'nationality', 'trade']),
+  field: z.enum(['workerName', 'iqamaNumber', 'nationality']),
 });
 
 export const mobilisationCoordinatorParamSchema = z.object({

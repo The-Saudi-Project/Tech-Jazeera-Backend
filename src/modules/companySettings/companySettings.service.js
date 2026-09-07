@@ -5,10 +5,7 @@
  * error.
  */
 import CompanySettings from './companySettings.model.js';
-import ApprovalRole from '../approvals/approvalRole.model.js';
-import { isMemberOfAnyRole } from '../approvals/approvals.service.js';
 import { deleteLogoMedia } from './logo.upload.js';
-import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../audit/audit.service.js';
 import logger from '../../config/logger.js';
 
@@ -26,7 +23,6 @@ const EMPTY = {
   bankIban: null,
   signatoryName: null,
   signatoryTitle: null,
-  manageRoles: [],
 };
 
 export async function getCompanySettings() {
@@ -34,40 +30,18 @@ export async function getCompanySettings() {
   return settings ?? EMPTY;
 }
 
-/** Same shape, but with manageRoles populated to {_id, name} for the admin UI. */
-export async function getCompanySettingsPopulated() {
-  const settings = await CompanySettings.findOne().populate('manageRoles', 'name').lean();
-  return settings ?? EMPTY;
-}
-
-/**
- * Admin and Manager always may edit; beyond that, whoever the company put in
- * `manageRoles` (e.g. BDM, COO, GM) — an admin-configurable circle, not a
- * hardcoded one, since ApprovalRole names are themselves admin-named and
- * this app never matches on them by literal string.
- */
-export async function canManageCompanySettings(actor) {
-  if (actor.role === 'Admin' || actor.role === 'Manager') return true;
-  const settings = await getCompanySettings();
-  return isMemberOfAnyRole(actor.userId, settings.manageRoles);
-}
-
-async function assertValidRoles(roleIds) {
-  if (!roleIds?.length) return;
-  const count = await ApprovalRole.countDocuments({ _id: { $in: roleIds }, isActive: true });
-  if (count !== new Set(roleIds.map(String)).size) {
-    throw new ApiError(400, 'One or more selected roles are invalid or inactive.');
-  }
-}
+// Edit access (who besides Admin may view/change this) is governed by
+// Section Access's 'companySettings' key now — see
+// sectionAccess.service.js's canAccessSection, called directly from
+// companySettings.controller.js. Kept out of this service so this module
+// doesn't need to know about ApprovalRole membership at all anymore.
 
 export async function updateCompanySettings(data, actor) {
   const settings = await CompanySettings.findOneAndUpdate({}, data, {
     new: true,
     upsert: true,
     setDefaultsOnInsert: true,
-  })
-    .populate('manageRoles', 'name')
-    .lean();
+  }).lean();
 
   await logAudit({
     user: actor.userId,
@@ -75,29 +49,6 @@ export async function updateCompanySettings(data, actor) {
     targetType: 'CompanySettings',
     targetId: settings._id,
     meta: { fields: Object.keys(data) },
-    ip: actor.ip,
-  });
-  return settings;
-}
-
-/** Admin-only — see the model's doc comment for why this is separate from
- *  updateCompanySettings's broader circle. */
-export async function updateManageRoles(roleIds, actor) {
-  await assertValidRoles(roleIds);
-  const settings = await CompanySettings.findOneAndUpdate(
-    {},
-    { manageRoles: roleIds },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  )
-    .populate('manageRoles', 'name')
-    .lean();
-
-  await logAudit({
-    user: actor.userId,
-    action: 'companySettings.manageRoles.update',
-    targetType: 'CompanySettings',
-    targetId: settings._id,
-    meta: { roleCount: roleIds.length },
     ip: actor.ip,
   });
   return settings;

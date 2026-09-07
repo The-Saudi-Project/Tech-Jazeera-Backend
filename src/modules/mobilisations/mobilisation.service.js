@@ -84,24 +84,40 @@ const POPULATE = [
   { path: 'documents.uploadedBy', select: 'name' },
 ];
 
+// Section 1 — the rate/commission/profit fields the Coordinator types in
+// themselves at creation. Stripped from their own view only once the record
+// is Approved: they see everything they typed while it's still Draft/
+// PendingReview/Rejected, but the finalized commercial picture is
+// management-only from that point on. Admin and any
+// MobilisationSettings.viewerRoles member always see everything.
 const COMMERCIAL_FIELDS = [
   'clientRate',
   'clientCommission',
   'fta',
   'allowance',
   'requiredTimesheetHours',
-  'clientTimesheetHours',
   'subcontractorRate',
   'subcontractorCommission',
   'profitPerHour',
   'profitPerMonth',
+  'otProfitPerHour',
+  'otProfitTotal',
+];
+
+// Section 2 — the CURRENT-STEP REVIEWER's own work (quotation/PO, the
+// client's actual timesheet hours, overtime, their remark). A plain
+// Coordinator never entered any of this themselves — unlike Section 1
+// above, it is stripped from their view UNCONDITIONALLY, at every status,
+// not just once Approved. Visible only to Admin, a viewerRoles member, or
+// whoever is actually authorized for the current step right now. See
+// saveCommercialDetails below, which writes exactly this field list.
+const REVIEW_FIELDS = [
+  'clientTimesheetHours',
   'otHours',
   'otClientRate',
   'otClientCommission',
   'otSubcontractorRate',
   'otSubcontractorCommission',
-  'otProfitPerHour',
-  'otProfitTotal',
   'clientQuotation',
   'clientQuotationDate',
   'clientPO',
@@ -110,16 +126,12 @@ const COMMERCIAL_FIELDS = [
   'subQuotationDate',
   'subPO',
   'subPODate',
+  'remark',
 ];
 
-/** Strip commercial fields for a plain Coordinator once the record is
- *  Approved — they see everything they typed themselves while Draft/
- *  PendingReview/Rejected, but the finalized commercial picture (rates,
- *  commission, profit, quotation/PO) is management-only from that point on.
- *  Admin and any MobilisationSettings.viewerRoles member always see everything. */
-function stripCommercialFields(mobilisation) {
+function stripFields(mobilisation, fields) {
   const copy = { ...mobilisation };
-  for (const field of COMMERCIAL_FIELDS) delete copy[field];
+  for (const field of fields) delete copy[field];
   return copy;
 }
 
@@ -131,7 +143,6 @@ function snapshotFromEmployee(employee) {
     workerName: employee.fullName,
     iqamaNumber: employee.iqama?.number ?? null,
     nationality: employee.nationality ?? null,
-    trade: employee.designation ?? null,
     phone: employee.mobile ?? null,
   };
 }
@@ -141,8 +152,8 @@ function snapshotFromEmployee(employee) {
  * original behavior in full (real Employee doc, snapshot, `worker` ref
  * populated). 'SupplierEmployee'/'Freelancer' never touch the Employee
  * collection at all — no HR record exists for them — so the Coordinator's
- * own typed `workerName`/`iqamaNumber`/`nationality`/`trade`/`phone` pass
- * straight through and `worker` stays null.
+ * own typed `workerName`/`iqamaNumber`/`nationality`/`phone` pass straight
+ * through and `worker` stays null.
  */
 async function resolveWorkerSnapshot(workerType, data) {
   if (workerType === 'Employee') {
@@ -157,7 +168,6 @@ async function resolveWorkerSnapshot(workerType, data) {
       workerName: data.workerName,
       iqamaNumber: data.iqamaNumber ?? null,
       nationality: data.nationality ?? null,
-      trade: data.trade ?? null,
       phone: data.phone ?? null,
     },
   };
@@ -325,7 +335,10 @@ export async function completeMobilisation(id, actor) {
  *  - they hold a role in the CURRENT step's pool while it's PendingReview
  *    (so the Marketing Manager can find their review queue even before an
  *    Admin has also added them to viewerRoles).
- * Commercial fields are stripped for a plain-coordinator viewer once Approved.
+ * REVIEW_FIELDS (Section 2 — the current-step reviewer's own quotation/PO/
+ * OT/timesheet work) is stripped for a plain coordinator unconditionally;
+ * COMMERCIAL_FIELDS (Section 1 — what the coordinator typed themselves) only
+ * once Approved.
  */
 export async function listMobilisations(query, actor) {
   const { page, limit, status, client, worker, search, sortBy, sortOrder } = query;
@@ -339,8 +352,9 @@ export async function listMobilisations(query, actor) {
   }
 
   let isViewer = false;
+  let roleIds = [];
   if (actor.role !== 'Admin') {
-    const roleIds = await myRoleIds(actor.userId);
+    roleIds = await myRoleIds(actor.userId);
     const settings = await getMobilisationSettings();
     isViewer = roleIds.some((r) => settings.viewerRoles.some((v) => v.toString() === r.toString()));
 
@@ -363,7 +377,13 @@ export async function listMobilisations(query, actor) {
   const strippedItems =
     actor.role === 'Admin' || isViewer
       ? rawItems
-      : rawItems.map((m) => (m.status === 'Approved' ? stripCommercialFields(m) : m));
+      : rawItems.map((m) => {
+          const currentStepRoleIds = (m.steps?.[m.currentStep]?.roles ?? []).map((r) => (r._id ?? r).toString());
+          const isStepReviewer = roleIds.some((r) => currentStepRoleIds.includes(r.toString()));
+          let item = isStepReviewer ? m : stripFields(m, REVIEW_FIELDS);
+          if (!isStepReviewer && m.status === 'Approved') item = stripFields(item, COMMERCIAL_FIELDS);
+          return item;
+        });
   const items = await annotateCanDecide(strippedItems, actor, {
     pendingStatus: 'PendingReview',
     legacyAllowedRoles: ['Admin'],
@@ -395,8 +415,14 @@ export async function getMobilisation(id, actor) {
     if (!isCoordinator && !isViewerAllowed && !isStepReviewer) {
       throw new ApiError(403, 'You do not have access to this mobilisation.');
     }
+    // Section 2 (the current-step reviewer's own work) is never a plain
+    // coordinator's to see — stripped unconditionally, not just once
+    // Approved (unlike Section 1, which the coordinator typed themselves).
+    if (!isViewer && !isStepReviewer) {
+      visible = stripFields(visible, REVIEW_FIELDS);
+    }
     if (!isViewer && !isStepReviewer && mobilisation.status === 'Approved') {
-      visible = stripCommercialFields(mobilisation);
+      visible = stripFields(visible, COMMERCIAL_FIELDS);
     }
   }
 
@@ -451,7 +477,6 @@ export async function updateMobilisation(id, data, actor) {
       workerName: data.workerName ?? mobilisation.workerName,
       iqamaNumber: data.iqamaNumber ?? mobilisation.iqamaNumber,
       nationality: data.nationality ?? mobilisation.nationality,
-      trade: data.trade ?? mobilisation.trade,
       phone: data.phone ?? mobilisation.phone,
     });
     mobilisation.workerType = workerType;
@@ -663,24 +688,6 @@ export async function submitMobilisation(id, actor) {
 // name of this comment block was)
 // ---------------------------------------------------------------------------
 
-const COMMERCIAL_DETAIL_FIELDS = [
-  'clientQuotation',
-  'clientQuotationDate',
-  'clientPO',
-  'clientPODate',
-  'subQuotation',
-  'subQuotationDate',
-  'subPO',
-  'subPODate',
-  'clientTimesheetHours',
-  'otHours',
-  'otClientRate',
-  'otClientCommission',
-  'otSubcontractorRate',
-  'otSubcontractorCommission',
-  'remark',
-];
-
 /** Section 2 — filled by whoever is authorized for the CURRENT step (Office
  *  Secretary, then Marketing Manager, or Admin), PendingReview only. Does
  *  not touch status — deciding is a separate call, since the shared decide
@@ -703,7 +710,7 @@ export async function saveCommercialDetails(id, data, actor) {
     throw new ApiError(403, 'You are not an approver for the current step of this mobilisation.');
   }
 
-  for (const field of COMMERCIAL_DETAIL_FIELDS) {
+  for (const field of REVIEW_FIELDS) {
     if (field in data) mobilisation[field] = data[field];
   }
   applyProfitFields(mobilisation);

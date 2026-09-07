@@ -25,9 +25,3 @@ export const updateCompanySettingsSchema = z.object({
   signatoryName: optionalStr(100),
   signatoryTitle: optionalStr(100),
 });
-
-const roleId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid role id.');
-
-export const updateManageRolesSchema = z.object({
-  manageRoles: z.array(roleId).max(50),
-});

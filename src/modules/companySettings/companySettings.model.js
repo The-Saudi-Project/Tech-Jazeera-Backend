@@ -8,15 +8,11 @@
  * quotations, EOSB settlements, certificates, payslips), not just the one
  * export that already had a logo band.
  *
- * `manageRoles` — ApprovalRoles (e.g. BDM, COO, GM) granted the same edit
- * access as Admin/Manager over the company-detail fields below, same
- * "admin-configurable list of ApprovalRole ids" pattern as
- * MobilisationSettings.viewerRoles — deliberately its OWN list, not a reuse
- * of MobilisationSettings', so changing who can see mobilisations can never
- * silently change who can edit the company's legal/bank identity. Changing
- * THIS list itself is Admin-only (see companySettings.service.js) — a
- * broader editor of company details should not be able to grant that access
- * to someone else.
+ * Who else (besides Admin) can view/edit this is governed by Section
+ * Access's 'companySettings' key (server/src/modules/sectionAccess/) —
+ * previously its own bespoke `manageRoles` field here, folded into the
+ * generic mechanism so there's one place to configure every module's
+ * access instead of several one-off copies of the same idea.
  */
 import mongoose from 'mongoose';
 
@@ -46,8 +42,6 @@ const companySettingsSchema = new mongoose.Schema(
     // Authorized signatory — printed on certificates/official letters.
     signatoryName: { type: String, trim: true, default: null },
     signatoryTitle: { type: String, trim: true, default: null },
-
-    manageRoles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ApprovalRole' }], default: [] },
   },
   { timestamps: true }
 );

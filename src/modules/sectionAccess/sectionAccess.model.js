@@ -22,12 +22,18 @@ import { ROLES } from '../auth/user.model.js';
 /** Every section this mechanism currently governs. Add a key here (and a
  *  default in sectionAccess.service.js) to bring a new page under
  *  admin-configurable access without touching this model again. */
-export const SECTION_KEYS = ['payroll', 'expenses', 'employeeCreate'];
+export const SECTION_KEYS = ['payroll', 'expenses', 'employeeCreate', 'companySettings'];
 
 /** Worker/Staff (the ESS self-service personas) are never grantable here —
  *  same floor requireStaff/requireStaffOrExecutive enforce everywhere else.
- *  This system only ever ADDS access on top of that floor. */
-export const GRANTABLE_ROLES = ROLES.filter((role) => !['Worker', 'Staff'].includes(role));
+ *  This system only ever ADDS access on top of that floor. Office Secretary
+ *  is excluded too, deliberately: unlike every other role here, it's
+ *  designed to reach things ONLY via ApprovalRole membership on a specific
+ *  workflow step (see requireStaffOrOfficeSecretary's own doc comment),
+ *  never a blanket per-section grant — canAccessSection's own floor check
+ *  (STAFF_ROLES) already excludes it, so allowing it here would just be a
+ *  silently-broken option in the UI (picking it saves fine, grants nothing). */
+export const GRANTABLE_ROLES = ROLES.filter((role) => !['Worker', 'Staff', 'Office Secretary'].includes(role));
 
 const sectionAccessSchema = new mongoose.Schema(
   {
