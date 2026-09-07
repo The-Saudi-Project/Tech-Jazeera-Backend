@@ -15,52 +15,74 @@ const emptyToUndef = (value) =>
 const optionalStr = (max) => z.preprocess(emptyToUndef, z.string().trim().max(max).optional());
 const id = (label) => z.string().regex(/^[a-f0-9]{24}$/i, `Invalid ${label} id.`);
 const optionalNonNegNumber = z.preprocess(emptyToUndef, z.coerce.number().min(0).optional());
-const optionalNumber = z.preprocess(emptyToUndef, z.coerce.number().optional());
 const optionalDate = z.preprocess(emptyToUndef, z.coerce.date().optional());
 
+const workerType = z.enum(['Employee', 'SupplierEmployee', 'Freelancer']);
+
 const mobilisationFields = {
-  worker: id('worker'),
+  workerType,
+  worker: z.preprocess(emptyToUndef, id('worker').optional()),
+  // Free-typed only for SupplierEmployee/Freelancer — required by
+  // withWorkerTypeRefine below, not here, since Employee-type mobilisations
+  // get these from the snapshot instead.
+  workerName: optionalStr(150),
+  iqamaNumber: optionalStr(50),
+  nationality: optionalStr(80),
+  trade: optionalStr(100),
+  phone: optionalStr(30),
   jobTitle: z.string().trim().min(1, 'Job title is required.').max(150),
 
   client: id('client'),
   clientRate: optionalNonNegNumber,
   clientCommission: optionalNonNegNumber,
-  ftaAllowance: optionalNonNegNumber,
-  clientTimesheetRequired: z.boolean().optional(),
+  fta: optionalNonNegNumber,
+  allowance: optionalNonNegNumber,
+  requiredTimesheetHours: optionalNonNegNumber,
 
-  hasSubcontractor: z.boolean().optional(),
   subcontractor: z.preprocess(emptyToUndef, id('subcontractor').optional()),
+  subcontractorRate: optionalNonNegNumber,
   subcontractorCommission: optionalNonNegNumber,
-  subcontractorTimesheetRequired: z.boolean().optional(),
 
-  profit: optionalNumber,
   mobilisationDate: z.coerce.date({ error: 'Mobilisation date is required.' }),
   checkoutDate: optionalDate,
 
-  overtimeRate: optionalNonNegNumber,
-  overtimeHours: optionalNonNegNumber,
-  otAmount: optionalNumber,
-  otCommissionIn: optionalNumber,
-  otCommissionOut: optionalNumber,
-
   remark: optionalStr(1000),
 };
+// NOTE: hasSubcontractor, profitPerHour/profitPerMonth, and every ot* field
+// are deliberately absent from this schema — hasSubcontractor is derived
+// server-side from workerType, the rest are either server-computed or only
+// ever set via commercialDetailsSchema (the current-step reviewer's form).
+// Any of these sent by a client here is silently dropped, never applied.
 
-/** A subcontractor must be selected once "has a subcontractor" is toggled on. */
-function withSubcontractorRefine(schema) {
+/** workerType drives which identity fields are actually required: an
+ *  Employee mobilisation needs a real `worker` id (its name/Iqama/etc. come
+ *  from the snapshot); a SupplierEmployee/Freelancer one has no Employee
+ *  record at all, so `workerName` must be typed directly. A subcontractor
+ *  must be selected only for SupplierEmployee — Freelancer gets no
+ *  subcontractor-side fields at all. */
+function withWorkerTypeRefine(schema) {
   return schema.superRefine((data, ctx) => {
-    if (data.hasSubcontractor && !data.subcontractor) {
+    if (data.workerType === 'Employee' && !data.worker) {
+      ctx.addIssue({ code: 'custom', path: ['worker'], message: 'Select a worker.' });
+    }
+    if (data.workerType && data.workerType !== 'Employee' && !data.workerName) {
+      ctx.addIssue({ code: 'custom', path: ['workerName'], message: 'Worker name is required.' });
+    }
+    if (data.workerType === 'SupplierEmployee' && !data.subcontractor) {
       ctx.addIssue({ code: 'custom', path: ['subcontractor'], message: 'Select a subcontractor.' });
     }
   });
 }
 
-export const createMobilisationSchema = withSubcontractorRefine(z.object(mobilisationFields));
+export const createMobilisationSchema = withWorkerTypeRefine(z.object(mobilisationFields));
 
 /** PATCH: any subset of the same fields — only while Draft (enforced in the
- *  service). `worker`/`client` stay required even on an edit; an in-progress
- *  Draft always names a real worker and client, there's no "half-set" state. */
-export const updateMobilisationSchema = withSubcontractorRefine(z.object(mobilisationFields).partial());
+ *  service). `client` stays required even on an edit; an in-progress Draft
+ *  always names a real client, there's no "half-set" state. `workerType`
+ *  defaults to undefined here, so withWorkerTypeRefine's checks only fire
+ *  when the caller is actually changing worker identity — the service
+ *  falls back to the existing document's workerType otherwise. */
+export const updateMobilisationSchema = withWorkerTypeRefine(z.object(mobilisationFields).partial());
 
 export const listMobilisationsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -86,9 +108,15 @@ export const addCoordinatorSchema = z.object({
   user: id('user'),
 });
 
-/** Section 2 — Marketing Manager only, during review (M3). Every field is
- *  optional individually: a reviewer may fill in the client side today and
- *  the subcontractor side once that quote actually arrives. */
+/** Section 2 — filled by whoever holds the CURRENT approval step (Office
+ *  Secretary, then Marketing Manager, once configured), during review.
+ *  Every field is optional individually: a reviewer fills in what they have
+ *  as it arrives — the client side today, the subcontractor side once that
+ *  quote arrives, overtime/timesheet hours once the client's timesheet
+ *  itself arrives. `otSubcontractorRate`/`otSubcontractorCommission` are
+ *  only meaningful for a SupplierEmployee mobilisation, but left optional
+ *  here rather than workerType-conditional — an out-of-scope value for an
+ *  Employee/Freelancer record is simply never read by computeProfitFields. */
 export const commercialDetailsSchema = z.object({
   clientQuotation: optionalStr(100),
   clientQuotationDate: optionalDate,
@@ -97,6 +125,14 @@ export const commercialDetailsSchema = z.object({
   subQuotation: optionalStr(100),
   subQuotationDate: optionalDate,
   subPO: optionalStr(100),
+  subPODate: optionalDate,
+  clientTimesheetHours: optionalNonNegNumber,
+  otHours: optionalNonNegNumber,
+  otClientRate: optionalNonNegNumber,
+  otClientCommission: optionalNonNegNumber,
+  otSubcontractorRate: optionalNonNegNumber,
+  otSubcontractorCommission: optionalNonNegNumber,
+  remark: optionalStr(1000),
 });
 
 /** Rejecting requires a note so the coordinator knows what to fix before

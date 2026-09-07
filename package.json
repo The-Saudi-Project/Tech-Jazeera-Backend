@@ -11,6 +11,7 @@
     "seed:admin": "node src/scripts/seed-admin.js",
     "migrate:unify-employees": "node src/scripts/migrate-unify-employees.js",
     "migrate:rename-outsourced": "node src/scripts/migrate-rename-outsourced-employees.js",
+    "migrate:mobilisation-phase4": "node src/scripts/migrate-mobilisation-phase4.js",
     "generate:vapid": "node src/scripts/generate-vapid-keys.js"
   },
   "engines": {

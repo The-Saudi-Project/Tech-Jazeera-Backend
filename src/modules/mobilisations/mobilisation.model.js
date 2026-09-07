@@ -7,23 +7,38 @@
  *
  * Section 1 is filled by whoever creates it (a Coordinator, or — from M4 —
  * a BDM/Marketing Manager self-mobilising); Section 2 (client/sub quotation
- * & PO) is filled only by the Marketing Manager during review, via the
- * commercial-details endpoint (M3).
+ * & PO, overtime, actual client timesheet hours) is filled by whoever holds
+ * the CURRENT approval step (Office Secretary, then Marketing Manager, once
+ * an Admin configures that multi-step workflow) via the commercial-details
+ * endpoint — see mobilisation.service.js's saveCommercialDetails, which was
+ * already generic over "whoever's turn it is" before Office Secretary
+ * existed.
  *
- * `worker`/`client`/`subcontractor` are references (independent lifecycles);
- * their name/identity fields are SNAPSHOTS captured at creation, same
- * durable-history convention as Deployment.clientName — a later Iqama
- * renewal or client rename must not silently rewrite an already-submitted
- * mobilisation.
+ * `worker` is a reference, populated ONLY when `workerType === 'Employee'` —
+ * a Supplier-Employee or Freelancer worker never gets an Employee HR record
+ * at all, so their identity fields below are directly Coordinator-typed
+ * instead of snapshotted. `client`/`subcontractor` stay references either
+ * way; every identity field (`workerName`, `clientName`, `subcontractorName`,
+ * ...) is a SNAPSHOT captured at creation/edit, same durable-history
+ * convention as Deployment.clientName — a later Iqama renewal or client
+ * rename must not silently rewrite an already-submitted mobilisation.
  *
- * `profit` is a plain editable Number, never a formula-only computed field —
- * the exact commission arithmetic hasn't been verified against a real
- * example yet (same posture as Payroll's manually-entered GOSI).
+ * `profitPerHour`/`profitPerMonth`/`otProfitPerHour`/`otProfitTotal` are
+ * SERVER-COMPUTED (mobilisation.service.js's computeProfitFields), never
+ * accepted from client input and recomputed on every save AND every read —
+ * this app's "never trust a stored financial figure, recompute server-side"
+ * rule, same posture as Payroll/Invoice totals. Formula (given directly by
+ * the business owner, not inferred):
+ *   profitPerHour = SupplierEmployee: (clientRate - clientCommission) - (subcontractorRate + subcontractorCommission)
+ *                   Employee/Freelancer: clientRate - clientCommission
+ *   profitPerMonth = (profitPerHour * clientTimesheetHours) - fta - allowance + otProfitTotal
  *
  * `workflow`/`workflowName`/`steps`/`currentStep`/`approvalTrail` are the
  * Configurable Approval Hierarchy fields, identical shape to
- * reimbursement.model.js — the Marketing Manager decision (M2/M3) reuses
- * approvals/approvalEngine.service.js's decideApprovalStep unchanged.
+ * reimbursement.model.js. `currentStepEnteredAt` is Mobilisation-local (the
+ * shared engine doesn't know about it) — set by decideMobilisation/
+ * submitMobilisation whenever `currentStep` changes, powering the
+ * stale-mobilisation warning job.
  */
 import mongoose from 'mongoose';
 
@@ -33,6 +48,12 @@ import mongoose from 'mongoose';
 // completeMobilisation.
 export const MOBILISATION_STATUSES = ['Draft', 'PendingReview', 'Approved', 'Rejected', 'Completed'];
 export const MOBILISATION_DOCUMENT_CATEGORIES = ['Contract', 'IDCopy', 'Other'];
+
+// 'Employee' is an existing Employee record (unchanged original behavior).
+// 'SupplierEmployee'/'Freelancer' never get an Employee record — their
+// identity fields are typed directly onto the mobilisation. Subcontractor
+// rate/commission fields only ever apply to 'SupplierEmployee'.
+export const WORKER_TYPES = ['Employee', 'SupplierEmployee', 'Freelancer'];
 
 /** One uploaded file (M5). _id kept (default) — deleted individually by id,
  *  unlike Document.versions' append-only history. */
@@ -63,40 +84,58 @@ const coordinatorSchema = new mongoose.Schema(
 const mobilisationSchema = new mongoose.Schema(
   {
     // --- Section 1: worker & job ---
-    worker: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
-    workerName: { type: String, required: true }, // snapshot of Employee.fullName
-    iqamaNumber: { type: String, trim: true }, // snapshot of Employee.iqama.number
-    nationality: { type: String, trim: true }, // snapshot of Employee.nationality
-    trade: { type: String, trim: true }, // snapshot of Employee.designation
-    phone: { type: String, trim: true }, // snapshot of Employee.mobile
+    serialNumber: { type: String, required: true, unique: true }, // 'MOB-0001', via counter.model.js's nextSequence
+    workerType: { type: String, enum: WORKER_TYPES, required: true, default: 'Employee' },
+    worker: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee',
+      required: function () {
+        return this.workerType === 'Employee';
+      },
+      default: null,
+    },
+    workerName: { type: String, required: true }, // snapshot of Employee.fullName, or direct entry
+    iqamaNumber: { type: String, trim: true },
+    nationality: { type: String, trim: true },
+    trade: { type: String, trim: true },
+    phone: { type: String, trim: true },
     jobTitle: { type: String, required: true, trim: true, maxlength: 150 },
 
     // --- Section 1: client & billing ---
     client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
     clientName: { type: String, required: true }, // snapshot of Client.companyName
-    clientRate: { type: Number, default: 0, min: 0 },
-    clientCommission: { type: Number, default: 0, min: 0 },
-    ftaAllowance: { type: Number, default: 0, min: 0 },
-    clientTimesheetRequired: { type: Boolean, default: false },
+    clientRate: { type: Number, default: 0, min: 0 }, // per hour
+    clientCommission: { type: Number, default: 0, min: 0 }, // per hour
+    fta: { type: Number, default: 0, min: 0 }, // per month — Food/Travel/Accommodation, company-paid
+    allowance: { type: Number, default: 0, min: 0 }, // per month, company-paid
+    requiredTimesheetHours: { type: Number, default: null, min: 0 }, // contracted/target hours, set by the Coordinator
+    clientTimesheetHours: { type: Number, default: null, min: 0 }, // actual hours, filled later by the current-step reviewer
 
-    // --- Section 1: subcontractor (optional) ---
-    hasSubcontractor: { type: Boolean, default: false },
+    // --- Section 1: subcontractor — only when workerType === 'SupplierEmployee' ---
+    hasSubcontractor: { type: Boolean, default: false }, // server-derived from workerType — never client-writable
     subcontractor: { type: mongoose.Schema.Types.ObjectId, ref: 'Subcontractor', default: null },
     subcontractorName: { type: String, default: null }, // snapshot of Subcontractor.name
-    subcontractorCommission: { type: Number, default: 0, min: 0 },
-    subcontractorTimesheetRequired: { type: Boolean, default: false },
+    subcontractorRate: { type: Number, default: 0, min: 0 }, // per hour
+    subcontractorCommission: { type: Number, default: 0, min: 0 }, // per hour
 
-    // --- Section 1: economics & dates ---
-    profit: { type: Number, default: 0 },
+    // --- Section 1: computed economics (server-only — see computeProfitFields) ---
+    profitPerHour: { type: Number, default: null },
+    profitPerMonth: { type: Number, default: null }, // null until clientTimesheetHours is set
+
     mobilisationDate: { type: Date, required: true },
     checkoutDate: { type: Date, default: null },
 
-    // --- Section 1: overtime ---
-    overtimeRate: { type: Number, default: 0, min: 0 },
-    overtimeHours: { type: Number, default: 0, min: 0 },
-    otAmount: { type: Number, default: 0 },
-    otCommissionIn: { type: Number, default: 0 }, // cash commission received
-    otCommissionOut: { type: Number, default: 0 }, // cash commission paid out
+    // --- Section 2: overtime — filled by the current-step reviewer, mirrors the regular-hours split ---
+    otHours: { type: Number, default: null, min: 0 },
+    otClientRate: { type: Number, default: null, min: 0 },
+    otClientCommission: { type: Number, default: null, min: 0 },
+    otSubcontractorRate: { type: Number, default: null, min: 0 }, // SupplierEmployee only
+    otSubcontractorCommission: { type: Number, default: null, min: 0 }, // SupplierEmployee only
+    otProfitPerHour: { type: Number, default: null }, // computed
+    otProfitTotal: { type: Number, default: null }, // computed = otProfitPerHour * otHours
+
+    // --- stale-mobilisation warning support ---
+    currentStepEnteredAt: { type: Date, default: null },
 
     // --- Section 1: coordinators / documents / remark ---
     coordinators: {
@@ -109,7 +148,7 @@ const mobilisationSchema = new mongoose.Schema(
     documents: { type: [mobilisationDocumentSchema], default: [] },
     remark: { type: String, trim: true, maxlength: 1000 },
 
-    // --- Section 2: Marketing Manager review only (M3) ---
+    // --- Section 2: current-step reviewer only (Office Secretary, then Marketing Manager) ---
     clientQuotation: { type: String, trim: true, default: null },
     clientQuotationDate: { type: Date, default: null },
     clientPO: { type: String, trim: true, default: null },
@@ -117,6 +156,7 @@ const mobilisationSchema = new mongoose.Schema(
     subQuotation: { type: String, trim: true, default: null },
     subQuotationDate: { type: Date, default: null },
     subPO: { type: String, trim: true, default: null },
+    subPODate: { type: Date, default: null },
 
     // --- Workflow (Configurable Approval Hierarchy, M2/M3) ---
     status: { type: String, enum: MOBILISATION_STATUSES, default: 'Draft' },

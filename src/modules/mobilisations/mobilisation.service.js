@@ -26,9 +26,52 @@ import {
 } from '../approvals/approvalEngine.service.js';
 import { getMobilisationSettings } from '../mobilisationSettings/mobilisationSettings.service.js';
 import { signedDownloadUrl, destroyDocumentFile } from '../../middleware/upload.js';
+import { nextSequence } from '../quotations/counter.model.js';
 
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * Server-only profit computation — never trust a stored or client-submitted
+ * value, always recompute from the current rate/commission/hours fields.
+ * Formula given directly by the business owner (not inferred):
+ *   profitPerHour = SupplierEmployee: (clientRate - clientCommission) - (subcontractorRate + subcontractorCommission)
+ *                   Employee/Freelancer: clientRate - clientCommission
+ *   otProfitPerHour = the same split, using the ot*-prefixed fields
+ *   profitPerMonth = (profitPerHour * clientTimesheetHours) - fta - allowance + otProfitTotal
+ * `profitPerMonth` stays null until clientTimesheetHours is actually filled
+ * in (usually by the current-step reviewer, once the client's real
+ * timesheet arrives) — there's nothing meaningful to compute before then.
+ */
+function computeProfitFields(m) {
+  const isSupplier = m.workerType === 'SupplierEmployee';
+  const clientSide = (m.clientRate ?? 0) - (m.clientCommission ?? 0);
+  const subSide = isSupplier ? (m.subcontractorRate ?? 0) + (m.subcontractorCommission ?? 0) : 0;
+  const profitPerHour = money(clientSide - subSide);
+
+  const otClientSide = (m.otClientRate ?? 0) - (m.otClientCommission ?? 0);
+  const otSubSide = isSupplier ? (m.otSubcontractorRate ?? 0) + (m.otSubcontractorCommission ?? 0) : 0;
+  const otProfitPerHour = money(otClientSide - otSubSide);
+  const otProfitTotal = money(otProfitPerHour * (m.otHours ?? 0));
+
+  const profitPerMonth =
+    m.clientTimesheetHours == null
+      ? null
+      : money(profitPerHour * m.clientTimesheetHours - (m.fta ?? 0) - (m.allowance ?? 0) + otProfitTotal);
+
+  return { profitPerHour, otProfitPerHour, otProfitTotal, profitPerMonth };
+}
+
+/** Applied right before every `.save()` (create/update/commercial-details)
+ *  and mapped over every `.lean()` read result — so a stale stored value is
+ *  never trusted, matching this app's "recompute financials server-side,
+ *  always" rule. `target` can be a Mongoose document or a plain lean object. */
+function applyProfitFields(target) {
+  Object.assign(target, computeProfitFields(target));
+  return target;
 }
 
 const POPULATE = [
@@ -44,9 +87,21 @@ const POPULATE = [
 const COMMERCIAL_FIELDS = [
   'clientRate',
   'clientCommission',
-  'ftaAllowance',
+  'fta',
+  'allowance',
+  'requiredTimesheetHours',
+  'clientTimesheetHours',
+  'subcontractorRate',
   'subcontractorCommission',
-  'profit',
+  'profitPerHour',
+  'profitPerMonth',
+  'otHours',
+  'otClientRate',
+  'otClientCommission',
+  'otSubcontractorRate',
+  'otSubcontractorCommission',
+  'otProfitPerHour',
+  'otProfitTotal',
   'clientQuotation',
   'clientQuotationDate',
   'clientPO',
@@ -54,6 +109,7 @@ const COMMERCIAL_FIELDS = [
   'subQuotation',
   'subQuotationDate',
   'subPO',
+  'subPODate',
 ];
 
 /** Strip commercial fields for a plain Coordinator once the record is
@@ -80,12 +136,50 @@ function snapshotFromEmployee(employee) {
   };
 }
 
-async function resolveSubcontractorSnapshot(hasSubcontractor, subcontractorId) {
-  if (!hasSubcontractor) return { subcontractor: null, subcontractorName: null };
+/**
+ * Resolves the worker-identity fields by `workerType`. 'Employee' keeps the
+ * original behavior in full (real Employee doc, snapshot, `worker` ref
+ * populated). 'SupplierEmployee'/'Freelancer' never touch the Employee
+ * collection at all — no HR record exists for them — so the Coordinator's
+ * own typed `workerName`/`iqamaNumber`/`nationality`/`trade`/`phone` pass
+ * straight through and `worker` stays null.
+ */
+async function resolveWorkerSnapshot(workerType, data) {
+  if (workerType === 'Employee') {
+    const employee = await Employee.findById(data.worker).lean();
+    if (!employee) throw new ApiError(404, 'Employee not found.');
+    return { employee, snapshot: { worker: data.worker, ...snapshotFromEmployee(employee) } };
+  }
+  return {
+    employee: null,
+    snapshot: {
+      worker: null,
+      workerName: data.workerName,
+      iqamaNumber: data.iqamaNumber ?? null,
+      nationality: data.nationality ?? null,
+      trade: data.trade ?? null,
+      phone: data.phone ?? null,
+    },
+  };
+}
+
+/** Subcontractor snapshot — only ever resolved for a SupplierEmployee
+ *  mobilisation; Employee/Freelancer types always clear it. */
+async function resolveSubcontractorSnapshot(workerType, subcontractorId) {
+  if (workerType !== 'SupplierEmployee') {
+    return { hasSubcontractor: false, subcontractor: null, subcontractorName: null };
+  }
   if (!subcontractorId) throw new ApiError(400, 'Select a subcontractor.');
   const subcontractorDoc = await Subcontractor.findById(subcontractorId).lean();
   if (!subcontractorDoc) throw new ApiError(404, 'Subcontractor not found.');
-  return { subcontractor: subcontractorId, subcontractorName: subcontractorDoc.name };
+  return { hasSubcontractor: true, subcontractor: subcontractorId, subcontractorName: subcontractorDoc.name };
+}
+
+/** Sequential 'MOB-0001' display number — same atomic-counter mechanism
+ *  Invoices ('INV-') and Quotations ('QT-') already use, reused unchanged. */
+async function newMobilisationSerial() {
+  const seq = await nextSequence('mobilisation');
+  return `MOB-${String(seq).padStart(4, '0')}`;
 }
 
 /** Every ApprovalRole id `userId` belongs to — computed once per request and
@@ -136,29 +230,32 @@ export async function createMobilisation(data, actor) {
     throw new ApiError(403, 'You do not have permission to create a mobilisation.');
   }
 
-  const employee = await Employee.findById(data.worker).lean();
-  if (!employee) throw new ApiError(404, 'Employee not found.');
-  await assertNoActivePlacement(data.worker);
+  const { snapshot: workerSnapshot } = await resolveWorkerSnapshot(data.workerType, data);
+  if (data.workerType === 'Employee') await assertNoActivePlacement(data.worker);
   const clientDoc = await Client.findById(data.client).lean();
   if (!clientDoc) throw new ApiError(404, 'Client not found.');
-  const subcontractorSnapshot = await resolveSubcontractorSnapshot(data.hasSubcontractor, data.subcontractor);
+  const subcontractorSnapshot = await resolveSubcontractorSnapshot(data.workerType, data.subcontractor);
 
-  const mobilisation = await Mobilisation.create({
-    ...data,
-    ...snapshotFromEmployee(employee),
-    clientName: clientDoc.companyName,
-    ...subcontractorSnapshot,
-    coordinators: [{ user: actor.userId, isPrimary: true, confirmed: true, confirmedAt: new Date() }],
-    createdBy: actor.userId,
-  });
+  const mobilisation = await Mobilisation.create(
+    applyProfitFields({
+      ...data,
+      ...workerSnapshot,
+      serialNumber: await newMobilisationSerial(),
+      clientName: clientDoc.companyName,
+      ...subcontractorSnapshot,
+      coordinators: [{ user: actor.userId, isPrimary: true, confirmed: true, confirmedAt: new Date() }],
+      createdBy: actor.userId,
+    })
+  );
 
   // Milestone 5: a real Coordinator primary claims the worker immediately —
   // Employee.coordinator is now fully derived from Mobilisation state, not a
   // manually-picked field. Admin and a self-mobilising role member (BDM/MM/
   // etc, both legal creators per the `allowed` check above) are NOT real
   // coordinators, so they leave it untouched (null, standby) — only a
-  // Coordinator-role primary ever claims one.
-  if (actor.role === 'Coordinator') {
+  // Coordinator-role primary ever claims one, and only for a real Employee
+  // (SupplierEmployee/Freelancer workers have no Employee record to claim).
+  if (actor.role === 'Coordinator' && data.workerType === 'Employee') {
     await Employee.findByIdAndUpdate(data.worker, { coordinator: actor.userId });
   }
 
@@ -241,10 +338,13 @@ export async function listMobilisations(query, actor) {
   const filter = conditions.length > 0 ? { $and: conditions } : {};
   const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1, _id: 1 };
 
-  const [rawItems, total] = await Promise.all([
+  const [foundItems, total] = await Promise.all([
     Mobilisation.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).populate(POPULATE).lean(),
     Mobilisation.countDocuments(filter),
   ]);
+  // Recomputed on every read, never trusting whatever was last stored — see
+  // computeProfitFields's own doc comment.
+  const rawItems = foundItems.map(applyProfitFields);
 
   const strippedItems =
     actor.role === 'Admin' || isViewer
@@ -259,8 +359,9 @@ export async function listMobilisations(query, actor) {
 }
 
 export async function getMobilisation(id, actor) {
-  const mobilisation = await Mobilisation.findById(id).populate(POPULATE).lean();
-  if (!mobilisation) throw new ApiError(404, 'Mobilisation not found.');
+  const found = await Mobilisation.findById(id).populate(POPULATE).lean();
+  if (!found) throw new ApiError(404, 'Mobilisation not found.');
+  const mobilisation = applyProfitFields(found);
 
   let visible = mobilisation;
   if (actor.role !== 'Admin') {
@@ -296,18 +397,13 @@ const DIRECT_FIELDS = [
   'jobTitle',
   'clientRate',
   'clientCommission',
-  'ftaAllowance',
-  'clientTimesheetRequired',
+  'fta',
+  'allowance',
+  'requiredTimesheetHours',
+  'subcontractorRate',
   'subcontractorCommission',
-  'subcontractorTimesheetRequired',
-  'profit',
   'mobilisationDate',
   'checkoutDate',
-  'overtimeRate',
-  'overtimeHours',
-  'otAmount',
-  'otCommissionIn',
-  'otCommissionOut',
   'remark',
 ];
 
@@ -331,11 +427,21 @@ export async function updateMobilisation(id, data, actor) {
   }
   assertPrimaryOrAdmin(mobilisation, actor);
 
-  if ('worker' in data) {
-    const employee = await Employee.findById(data.worker).lean();
-    if (!employee) throw new ApiError(404, 'Employee not found.');
-    Object.assign(mobilisation, snapshotFromEmployee(employee));
-    mobilisation.worker = data.worker;
+  // workerType changing (or being resent) re-resolves worker identity in
+  // full — same "only touch it if the caller sent it" discipline as
+  // worker/client always had, just widened to cover the new field too.
+  if ('workerType' in data || 'worker' in data || 'workerName' in data) {
+    const workerType = data.workerType ?? mobilisation.workerType;
+    const { snapshot } = await resolveWorkerSnapshot(workerType, {
+      worker: 'worker' in data ? data.worker : mobilisation.worker,
+      workerName: data.workerName ?? mobilisation.workerName,
+      iqamaNumber: data.iqamaNumber ?? mobilisation.iqamaNumber,
+      nationality: data.nationality ?? mobilisation.nationality,
+      trade: data.trade ?? mobilisation.trade,
+      phone: data.phone ?? mobilisation.phone,
+    });
+    mobilisation.workerType = workerType;
+    Object.assign(mobilisation, snapshot);
   }
   if ('client' in data) {
     const clientDoc = await Client.findById(data.client).lean();
@@ -343,11 +449,11 @@ export async function updateMobilisation(id, data, actor) {
     mobilisation.client = data.client;
     mobilisation.clientName = clientDoc.companyName;
   }
-  if ('hasSubcontractor' in data || 'subcontractor' in data) {
-    const hasSubcontractor = data.hasSubcontractor ?? mobilisation.hasSubcontractor;
+  if ('workerType' in data || 'subcontractor' in data) {
+    const workerType = data.workerType ?? mobilisation.workerType;
     const subcontractorId = 'subcontractor' in data ? data.subcontractor : mobilisation.subcontractor?.toString();
-    const snapshot = await resolveSubcontractorSnapshot(hasSubcontractor, subcontractorId);
-    mobilisation.hasSubcontractor = hasSubcontractor;
+    const snapshot = await resolveSubcontractorSnapshot(workerType, subcontractorId);
+    mobilisation.hasSubcontractor = snapshot.hasSubcontractor;
     mobilisation.subcontractor = snapshot.subcontractor;
     mobilisation.subcontractorName = snapshot.subcontractorName;
   }
@@ -355,6 +461,7 @@ export async function updateMobilisation(id, data, actor) {
     if (field in data) mobilisation[field] = data[field];
   }
 
+  applyProfitFields(mobilisation);
   await mobilisation.save();
   await logAudit({
     user: actor.userId,
