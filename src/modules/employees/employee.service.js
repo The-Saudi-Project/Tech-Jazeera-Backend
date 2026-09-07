@@ -2,7 +2,7 @@
  * Employee service — all employee business logic. Controllers only translate
  * HTTP; nothing in here touches req/res.
  */
-import Employee from './employee.model.js';
+import Employee, { WORKFORCE_TYPES } from './employee.model.js';
 import User, { MANAGER_ELIGIBLE_ROLES } from '../auth/user.model.js';
 import RefreshToken from '../auth/refreshToken.model.js';
 import Attendance from '../attendance/attendance.model.js';
@@ -74,13 +74,16 @@ export async function listEmployees(
     const coordinatorIds = await User.find({ role: 'Coordinator' }).distinct('_id');
     conditions.push({ createdBy: { $in: coordinatorIds } });
   }
-  // P2-M2: a Coordinator only ever sees their own assigned employees — this is
-  // not a filter the caller can opt out of. A Manager may narrow to their
-  // coordinators' teams with team=mine; without it a Manager keeps the
-  // existing company-wide view (adding Coordinator must not shrink anyone
-  // else's established access).
+  // P2-M2: a Coordinator sees their own assigned employees — this is not a
+  // filter the caller can opt out of. Milestone 5: PLUS every standby
+  // workforce employee (coordinator: null) company-wide, so any Coordinator
+  // can find and mobilise them — visibility only, never approval authority
+  // (leave/attendance/dashboard scoping deliberately stay coordinator-owned-
+  // only, unchanged). A Manager may narrow to their coordinators' teams with
+  // team=mine; without it a Manager keeps the existing company-wide view
+  // (adding Coordinator must not shrink anyone else's established access).
   if (actor?.role === 'Coordinator') {
-    conditions.push({ coordinator: actor.userId });
+    conditions.push({ $or: [{ coordinator: actor.userId }, { coordinator: null, type: { $in: WORKFORCE_TYPES } }] });
   } else if (actor?.role === 'Manager' && team === 'mine') {
     // The Manager's direct 'Own' reports (e.g. their Coordinators) → the
     // Users linked to those Employee records → the Employees THOSE
@@ -123,11 +126,16 @@ export async function getEmployee(id, actor) {
     .populate('createdBy', 'name role')
     .lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
-  // P2-M2: a Coordinator may only open employees assigned to them — everyone
-  // else's existing access (Admin/Manager/HR/Accounts see everyone) is
-  // unchanged.
-  if (actor?.role === 'Coordinator' && employee.coordinator?._id?.toString() !== actor.userId) {
-    throw new ApiError(403, 'You do not have access to this employee.');
+  // P2-M2: a Coordinator may only open employees assigned to them, PLUS
+  // (Milestone 5) any standby workforce employee — everyone else's existing
+  // access (Admin/Manager/HR/Accounts see everyone) is unchanged. Same
+  // visibility-only widening as listEmployees above.
+  if (actor?.role === 'Coordinator') {
+    const isMyAssignment = employee.coordinator?._id?.toString() === actor.userId;
+    const isStandbyWorkforce = !employee.coordinator && WORKFORCE_TYPES.includes(employee.type);
+    if (!isMyAssignment && !isStandbyWorkforce) {
+      throw new ApiError(403, 'You do not have access to this employee.');
+    }
   }
   // P2-M1: surface whether this employee has a login so the profile can show
   // account status (and hide "create login" once one exists) without a second
@@ -137,15 +145,6 @@ export async function getEmployee(id, actor) {
     ? { id: login._id.toString(), email: login.email, role: login.role, isActive: login.isActive }
     : null;
   return employee;
-}
-
-/** The assigned coordinator, if any, must actually be a 'Coordinator' user. */
-async function assertValidCoordinator(coordinatorId) {
-  if (!coordinatorId) return;
-  const coordinator = await User.findById(coordinatorId).lean();
-  if (!coordinator || coordinator.role !== 'Coordinator') {
-    throw new ApiError(400, 'Selected coordinator is not a valid Coordinator account.');
-  }
 }
 
 /** The assigned manager, if any, must be an Admin or Manager user. */
@@ -305,17 +304,16 @@ export async function resetEmployeeLoginPassword(employeeId, actor) {
 /** Duplicate employeeId is caught by the unique index → 409 via errorHandler. */
 export async function createEmployee(data, actor) {
   const payload = { ...data, createdBy: actor.userId };
-  // A Coordinator adding their own worker doesn't pick a coordinator — it's
-  // always themselves. Their choice of 'Outsourced' vs 'Subcontracted' is
-  // left alone (both are "their deployable team"); only 'Own' is overridden,
-  // since a Coordinator can never create an internal-staff record. This is
-  // an override (not just a default) so a hand-crafted request can't
-  // smuggle a different coordinator or an 'Own' type through.
-  if (actor.role === 'Coordinator') {
-    payload.coordinator = actor.userId;
-    if (payload.type === 'Own') payload.type = 'Outsourced';
-  }
-  await assertValidCoordinator(payload.coordinator);
+  // A Coordinator can never create an internal-staff record — only 'Own' is
+  // overridden (their choice of 'Outsourced' vs 'Subcontracted' is left
+  // alone, both are "their deployable team"). This is an override (not just
+  // a default) so a hand-crafted request can't smuggle an 'Own' type
+  // through. Coordinator is deliberately NOT auto-assigned here (Milestone
+  // 5): a newly created employee always starts on standby (coordinator:
+  // null), visible to every Coordinator, and only gets one once a real
+  // Mobilisation actually places them — see mobilisation.service.js's
+  // createMobilisation.
+  if (actor.role === 'Coordinator' && payload.type === 'Own') payload.type = 'Outsourced';
   await assertValidManager(payload.manager);
   await assertValidApprovalWorkflow(payload.approvalWorkflow);
   await assertValidSubcontractor(payload.subcontractor);
@@ -332,7 +330,6 @@ export async function createEmployee(data, actor) {
 }
 
 export async function updateEmployee(id, data, actor) {
-  if ('coordinator' in data) await assertValidCoordinator(data.coordinator);
   if ('manager' in data) await assertValidManager(data.manager);
   if ('approvalWorkflow' in data) await assertValidApprovalWorkflow(data.approvalWorkflow);
   if ('subcontractor' in data) await assertValidSubcontractor(data.subcontractor);

@@ -39,12 +39,17 @@ export const updateCompanySchema = createCompanySchema.partial();
 export const createEmployeeSchema = z.object({
   company: objectId('company'),
   name: z.string().trim().min(1, 'Name is required.').max(120),
+  // Manually-entered Arabic counterparts for the public page's EN/AR toggle
+  // — never auto-translated, same optional pattern as companyNameAr above.
+  nameAr: optionalStr(120),
   jobTitle: optionalStr(100),
+  jobTitleAr: optionalStr(100),
   phone: optionalStr(30),
   whatsapp: optionalStr(30),
   email: optionalEmail,
   linkedin: optionalStr(200),
   bio: optionalStr(600),
+  bioAr: optionalStr(600),
   idNumber: optionalStr(40),
   notes: optionalStr(2000),
 });

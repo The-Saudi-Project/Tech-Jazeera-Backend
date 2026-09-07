@@ -27,7 +27,11 @@
  */
 import mongoose from 'mongoose';
 
-export const MOBILISATION_STATUSES = ['Draft', 'PendingReview', 'Approved', 'Rejected'];
+// 'Completed' (Milestone 5) is the terminal "placement has ended" state — the
+// minimum needed to ever clear a worker's Employee.coordinator back to
+// standby. Only reachable from 'Approved'; see mobilisation.service.js's
+// completeMobilisation.
+export const MOBILISATION_STATUSES = ['Draft', 'PendingReview', 'Approved', 'Rejected', 'Completed'];
 export const MOBILISATION_DOCUMENT_CATEGORIES = ['Contract', 'IDCopy', 'Other'];
 
 /** One uploaded file (M5). _id kept (default) — deleted individually by id,

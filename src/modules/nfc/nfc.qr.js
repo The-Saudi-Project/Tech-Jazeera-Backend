@@ -10,13 +10,16 @@
  * that's converted to PNG via a data-URI approach.
  */
 import QRCode from 'qrcode';
+import sharp from 'sharp';
 
 const DEFAULT_BRAND = '#1f9e78';
 
 /**
- * Lighten a hex colour by mixing with white.
+ * Lighten a hex colour by mixing with white. Exported — the downloadable
+ * card image (nfc.cardImage.js) reuses this for its own gradient/palette,
+ * rather than re-deriving the same math a second time.
  */
-function lighten(hex, amount = 0.3) {
+export function lighten(hex, amount = 0.3) {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
@@ -127,4 +130,18 @@ function generateQrSvg(url, { brandColour = DEFAULT_BRAND, size = 512 } = {}) {
  */
 export function generatePremiumQrSvg(url, opts = {}) {
   return generateQrSvg(url, opts);
+}
+
+/**
+ * Convert an SVG string to a high-quality PNG buffer via sharp. Shared by
+ * the QR-only endpoint (square) and the downloadable card image (portrait,
+ * a different width/height) — moved here from nfc.controller.js so
+ * nfc.cardImage.js can reuse it without a generator module importing from
+ * an HTTP controller.
+ */
+export async function svgToPng(svg, { width, height }) {
+  return sharp(Buffer.from(svg))
+    .resize(width, height)
+    .png({ quality: 100 })
+    .toBuffer();
 }

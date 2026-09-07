@@ -23,6 +23,7 @@ import { publicCardLimiter, publicEventLimiter } from '../../middleware/rateLimi
 import { getPublicCardByToken, cardUrl } from './nfc.service.js';
 import { renderProfilePage, renderNotFoundPage } from './nfc.publicPage.js';
 import { buildVCard } from './nfc.vcard.js';
+import { buildCardImagePng } from './nfc.cardImage.js';
 import { recordTapEvent } from './nfc.analytics.service.js';
 import { NFC_CLICK_TARGETS } from './nfcTapEvent.model.js';
 
@@ -72,6 +73,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
     ...data,
     cardUrl: cardUrl(token),
     vcardUrl: `${cardUrl(token)}/vcard`,
+    cardImageUrl: `${cardUrl(token)}/card.png`,
     token,
     nonce: res.locals.nonce,
   });
@@ -93,6 +95,36 @@ router.get('/:token/vcard', asyncHandler(async (req, res) => {
   res.send(buildVCard(data));
 
   recordTapEvent({ ref: data.ref, type: 'save', req });
+}));
+
+/**
+ * GET /c/:token/card.png?lang=en|ar — the downloadable "visiting card"
+ * image (real text + a QR back to this same page), matching whichever
+ * language the visitor had toggled on the live page. Generated fresh per
+ * request, same posture as the existing QR endpoint — never stored.
+ */
+router.get('/:token/card.png', asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  if (!TOKEN_RE.test(token)) return notFound(res);
+  const data = await getPublicCardByToken(token);
+  if (!data) return notFound(res);
+
+  const lang = req.query.lang === 'ar' ? 'ar' : 'en';
+  const png = await buildCardImagePng({
+    employee: data.employee,
+    company: data.company,
+    lang,
+    cardUrl: cardUrl(token),
+    logoUrl: data.logoUrl,
+    photoUrl: data.photoUrl,
+  });
+
+  const safeName = (data.employee.name || 'card').replace(/[^\w]+/g, '_');
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}_card_${lang}.png"`);
+  res.send(png);
+
+  recordTapEvent({ ref: data.ref, type: 'image', req });
 }));
 
 /**

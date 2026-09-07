@@ -65,6 +65,11 @@ router.post(
   validate({ params: mobilisationIdParamSchema }),
   asyncHandler(mobilisationController.submit)
 );
+router.patch(
+  '/:id/complete',
+  validate({ params: mobilisationIdParamSchema }),
+  asyncHandler(mobilisationController.complete)
+);
 
 // --- M3: Marketing Manager review ---
 router.patch(

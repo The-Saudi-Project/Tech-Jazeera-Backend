@@ -100,13 +100,13 @@ const employeeObjectSchema = z
       z.coerce.number({ error: 'Salary must be a number.' }).min(0).max(1_000_000).optional()
     ),
     // Optional WPS breakdown of `salary` — see employee.model.js. "" clears
-    // it (nullableAmount), not "leave unchanged" — same rule as coordinator/weeklyOffDay.
+    // it (nullableAmount), not "leave unchanged" — same rule as manager/weeklyOffDay.
     basicSalary: nullableAmount,
     housingAllowance: nullableAmount,
     transportAllowance: nullableAmount,
     accommodation: optionalStr(100),
     // Early-sign-out warning threshold for this employee (My Attendance). "" means
-    // "no threshold" (null), not "leave unchanged" — same rule as coordinator.
+    // "no threshold" (null), not "leave unchanged" — same rule as manager.
     expectedDailyHours: nullableHours,
     weeklyOffDay: nullableWeekday,
     status: z.enum(EMPLOYEE_STATUSES).default('Active'),
@@ -119,21 +119,24 @@ const employeeObjectSchema = z
       })
       .optional(),
     notes: optionalStr(2000),
-    // P2-M2: the Coordinator responsible for this employee. Admin/Manager/HR
-    // assign it (same write circle as the rest of the record); referential
-    // integrity (must be a real 'Coordinator' user) is checked in the service.
-    coordinator: nullableObjectId('coordinator'),
+    // NOTE: `coordinator` is deliberately absent (Milestone 5) — it's no
+    // longer client-settable via these endpoints at all. It's fully derived
+    // from Mobilisation state now (null while standby, set to a real
+    // Coordinator's id only while an active Mobilisation places the
+    // employee) — see mobilisation.service.js's createMobilisation/
+    // completeMobilisation. Zod strips this key silently if a hand-crafted
+    // request still sends it (no .strict() needed).
     // The Admin/Manager this employee reports to. Universal across both
     // types (every 'Own' employee has one; an 'Outsourced' employee may have
     // one alongside or instead of a coordinator). Validated in the service.
     manager: nullableObjectId('manager'),
     // Configurable Approval Hierarchy: overrides the company-wide default
     // ApprovalWorkflow for this employee's requests. "" clears it (null),
-    // not "leave unchanged" — same rule as coordinator/manager/weeklyOffDay.
+    // not "leave unchanged" — same rule as manager/weeklyOffDay.
     approvalWorkflow: nullableObjectId('approval workflow'),
     // Who supplied this worker — required only when type is 'Subcontracted'
     // (see the superRefine below); referential integrity (must be a real
-    // Subcontractor) is checked in the service, same as coordinator/manager.
+    // Subcontractor) is checked in the service, same as manager.
     subcontractor: nullableObjectId('subcontractor'),
     // NOTE: currentClient / currentSite are deliberately absent — they are set
     // by the deployment workflow (M6), and unknown keys are stripped by Zod,

@@ -9,7 +9,16 @@
  * on dark stock, a dark brand reads as ink on ivory stock.
  *
  * The unknown/lost/unassigned case renders an identical, information-free 404.
+ *
+ * EN/AR TOGGLE (Milestone A): this page has no i18next access at all — it's
+ * outside the React bundle entirely — so the toggle is a small self-contained
+ * mechanism: every translatable element carries `data-en`/`data-ar`
+ * attributes (Arabic value already resolved server-side via nfc.i18n.js's
+ * pickLang, so it's never blank), and one inline-script loop swaps
+ * textContent + flips `dir` on click. Manually-entered `*Ar` fields only —
+ * never auto-translated.
  */
+import { UI_STRINGS, pickLang } from './nfc.i18n.js';
 
 /** HTML-escape text content. */
 function h(value) {
@@ -41,6 +50,7 @@ const ICON = {
   linkedin: 'M6.5 8.25A1.75 1.75 0 106.5 4.75a1.75 1.75 0 000 3.5zM5 10.5h3v9H5v-9zm5 0h2.9v1.23h.04c.4-.76 1.38-1.56 2.85-1.56 3.05 0 3.61 2 3.61 4.61v4.72h-3v-4.18c0-1 0-2.28-1.39-2.28s-1.6 1.09-1.6 2.21v4.25h-3v-9z',
   location: 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0zM19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
   save: 'M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H18A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h1.5m9 0h-9',
+  download: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M7.5 12l4.5 4.5m0 0l4.5-4.5m-4.5 4.5V3',
 };
 const iconSvg = (path, filled = false) =>
   `<svg viewBox="0 0 24 24" ${filled ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.7"'} aria-hidden="true">${filled ? `<path d="${path}"/>` : `<path stroke-linecap="round" stroke-linejoin="round" d="${path}"/>`}</svg>`;
@@ -49,11 +59,13 @@ const iconSvg = (path, filled = false) =>
  * One tappable row. `track` is the analytics key (see NFC_CLICK_TARGETS); the
  * page script reads it from data-t and beacons it on click. The href stays a
  * real link, so tapping works exactly the same if the beacon never fires.
+ * `label`/`labelAr` are the toggle's fixed UI strings (nfc.i18n.js) — the
+ * href itself never changes with language, only the visible text.
  */
-function action({ icon, label, href, track, filled = false, blank = false }) {
+function action({ icon, label, labelAr, href, track, filled = false, blank = false }) {
   if (!href) return '';
   const t = blank ? ' target="_blank" rel="noopener"' : '';
-  return `<a class="act" href="${attr(href)}" data-t="${attr(track)}"${t}><span class="ic">${iconSvg(icon, filled)}</span><span>${h(label)}</span></a>`;
+  return `<a class="act" href="${attr(href)}" data-t="${attr(track)}"${t}><span class="ic">${iconSvg(icon, filled)}</span><span data-en="${attr(label)}" data-ar="${attr(labelAr)}">${h(label)}</span></a>`;
 }
 
 /** Palette tokens for the ultra-premium dark aesthetic. */
@@ -127,8 +139,19 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .name{font-weight:700;font-size:28px;line-height:1.1;text-align:center;letter-spacing:-0.02em;text-wrap:balance;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.3);animation:pop 0.6s var(--ease) 1.4s both;}
 .role{text-align:center;color:var(--muted);font-size:14px;margin-top:6px;font-weight:500;animation:pop 0.6s var(--ease) 1.45s both;}
 .org{text-align:center;color:var(--brand);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;margin-top:8px;font-weight:700;filter:brightness(1.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;animation:pop 0.6s var(--ease) 1.5s both;}
-.org-ar{text-align:center;color:var(--brand);font-size:14px;margin-top:4px;font-weight:600;filter:brightness(1.3);direction:rtl;font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;animation:pop 0.6s var(--ease) 1.5s both;}
 .rule{height:1px;margin:16px 0;background:linear-gradient(90deg,transparent,var(--hair),transparent);animation:pop 0.6s var(--ease) 1.6s both;}
+
+/* EN/AR toggle pill — fixed to the physical top-right corner regardless of
+   the card's own dir, so the control itself never relocates when clicked. */
+.lang-switch{position:absolute;top:18px;right:18px;z-index:5;display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--btn-bg);border:1px solid var(--hair);animation:pop 0.6s var(--ease) 1.1s both;}
+.lang-switch button{border:0;background:transparent;color:var(--muted);font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;cursor:pointer;transition:all .25s var(--ease);font-family:inherit;}
+.lang-switch[data-active="en"] button[data-lang="en"],.lang-switch[data-active="ar"] button[data-lang="ar"]{background:var(--icon-bg);color:var(--text);}
+
+/* Arabic text needs a different font, no faux-uppercase (Arabic has no case),
+   and near-zero letter-spacing (tracking breaks a connected script). */
+[dir="rtl"] .org{text-transform:none;letter-spacing:0;font-size:14px;}
+[dir="rtl"] .foot{letter-spacing:0.12em;}
+[dir="rtl"] .name,[dir="rtl"] .role,[dir="rtl"] .org,[dir="rtl"] .bio,[dir="rtl"] .save span:last-child,[dir="rtl"] .act span:last-child,[dir="rtl"] .foot{font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;}
 
 .save{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px;border-radius:24px;text-decoration:none;font-weight:600;font-size:16px;color:#fff;
  background:linear-gradient(135deg, var(--brand), var(--accent));
@@ -137,6 +160,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .save:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 20px 40px -10px var(--glow), inset 0 2px 0 rgba(255,255,255,0.4);}
 .save:active{transform:scale(0.97)}
 .save svg{width:22px;height:22px;animation:floaty 4s infinite;}
+
+.download{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;margin-top:10px;border-radius:20px;text-decoration:none;font-weight:600;font-size:14px;color:var(--text);
+ background:var(--btn-bg);border:1px solid var(--hair);transition:all 0.25s var(--ease);animation:pop 0.6s var(--ease) 1.75s both;}
+.download:hover{border-color:color-mix(in oklab, var(--brand) 40%, transparent);background:rgba(255,255,255,0.05);}
+.download:active{transform:scale(0.98)}
+.download svg{width:18px;height:18px}
 
 .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
 .act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px 4px;border-radius:24px;text-decoration:none;color:var(--text);
@@ -161,6 +190,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 @media (max-width:480px){
   body{padding:24px 10px}
   .card{padding:32px 16px 24px;border-radius:28px}
+  .lang-switch{top:14px;right:14px}
+  .lang-switch button{padding:5px 8px;font-size:10px}
   .name{font-size:24px}
   .org{font-size:11px;letter-spacing:0.05em}
   .ava{width:88px;height:88px;font-size:30px;margin-bottom:12px}
@@ -196,11 +227,13 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 
 /**
  * The full profile page.
- * data = { employee, company, cardUrl, vcardUrl, logoUrl, photoUrl, token, nonce }
+ * data = { employee, company, cardUrl, vcardUrl, cardImageUrl, logoUrl, photoUrl, token, nonce }
  * `nonce` is the per-response CSP nonce (see nfc.public.routes.js) — without it
- * the browser refuses to run the page script at all.
+ * the browser refuses to run the page script at all. `cardImageUrl` is the
+ * downloadable-card endpoint (Milestone B) — the toggle's own script keeps
+ * its `?lang=` query in sync with whichever language is currently shown.
  */
-export function renderProfilePage({ employee, company, cardUrl, vcardUrl, logoUrl, photoUrl, token, nonce }) {
+export function renderProfilePage({ employee, company, cardUrl, vcardUrl, cardImageUrl, logoUrl, photoUrl, token, nonce }) {
   const brand = safeHex(company?.brandColour);
   const vars = palette(brand);
   const styleVars = Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';');
@@ -217,13 +250,21 @@ export function renderProfilePage({ employee, company, cardUrl, vcardUrl, logoUr
   const telHref = employee.phone ? `tel:${employee.phone.replace(/[^\d+]/g, '')}` : '';
   const waNumber = employee.whatsapp || employee.phone;
 
+  // Manually-entered Arabic counterparts, falling back to the English source
+  // when left blank (nfc.i18n.js's pickLang) — never a blank line when the
+  // visitor toggles to Arabic.
+  const nameAr = pickLang(employee.nameAr, employee.name);
+  const jobTitleAr = pickLang(employee.jobTitleAr, employee.jobTitle);
+  const orgAr = pickLang(company?.companyNameAr, company?.companyName);
+  const bioAr = pickLang(employee.bioAr, employee.bio);
+
   const rows =
-    action({ icon: ICON.phone, label: 'Call', href: telHref, track: 'call' }) +
-    action({ icon: ICON.whatsapp, label: 'WhatsApp', href: waNumber ? `https://wa.me/${digits(waNumber)}` : '', track: 'whatsapp' }) +
-    action({ icon: ICON.email, label: 'Email', href: employee.email ? `mailto:${employee.email}` : '', track: 'email' }) +
-    action({ icon: ICON.web, label: 'Website', href: website, track: 'website', blank: true }) +
-    action({ icon: ICON.linkedin, label: 'LinkedIn', href: linkedin, track: 'linkedin', filled: true, blank: true }) +
-    action({ icon: ICON.location, label: 'Location', href: mapHref, track: 'location', blank: true });
+    action({ icon: ICON.phone, label: UI_STRINGS.en.call, labelAr: UI_STRINGS.ar.call, href: telHref, track: 'call' }) +
+    action({ icon: ICON.whatsapp, label: UI_STRINGS.en.whatsapp, labelAr: UI_STRINGS.ar.whatsapp, href: waNumber ? `https://wa.me/${digits(waNumber)}` : '', track: 'whatsapp' }) +
+    action({ icon: ICON.email, label: UI_STRINGS.en.email, labelAr: UI_STRINGS.ar.email, href: employee.email ? `mailto:${employee.email}` : '', track: 'email' }) +
+    action({ icon: ICON.web, label: UI_STRINGS.en.website, labelAr: UI_STRINGS.ar.website, href: website, track: 'website', blank: true }) +
+    action({ icon: ICON.linkedin, label: UI_STRINGS.en.linkedin, labelAr: UI_STRINGS.ar.linkedin, href: linkedin, track: 'linkedin', filled: true, blank: true }) +
+    action({ icon: ICON.location, label: UI_STRINGS.en.location, labelAr: UI_STRINGS.ar.location, href: mapHref, track: 'location', blank: true });
 
   const avatar = photoUrl
     ? `<div class="ava"><img src="${attr(photoUrl)}" alt="${h(employee.name)}"></div>`
@@ -252,23 +293,27 @@ ${ogImage ? `<meta property="og:image" content="${h(ogImage)}">` : ''}
 <div class="load"><div class="ring"></div></div>
 <h2 class="sr-only">Digital contact card for ${h(employee.name)}${company?.companyName ? `, ${h(company.companyName)}` : ''}.</h2>
 <main class="card" id="card">
+  <div class="lang-switch" id="langToggle" data-active="en">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ar">عربي</button>
+  </div>
   <div class="card-content">
     <div class="profile-header">
       ${logoUrl ? `<img class="logo${!photoUrl ? ' logo-hero' : ''}" src="${attr(logoUrl)}" alt="${h(company?.companyName || 'Logo')}">` : ''}
       ${avatar}
-      <h1 class="name">${h(employee.name)}</h1>
-      ${employee.jobTitle ? `<p class="role">${h(employee.jobTitle)}</p>` : ''}
-      ${company?.companyName ? `<p class="org">${h(company.companyName)}</p>` : ''}
-      ${company?.companyNameAr ? `<p class="org-ar" dir="rtl" lang="ar">${h(company.companyNameAr)}</p>` : ''}
+      <h1 class="name" data-en="${attr(employee.name)}" data-ar="${attr(nameAr)}">${h(employee.name)}</h1>
+      ${employee.jobTitle ? `<p class="role" data-en="${attr(employee.jobTitle)}" data-ar="${attr(jobTitleAr)}">${h(employee.jobTitle)}</p>` : ''}
+      ${company?.companyName ? `<p class="org" data-en="${attr(company.companyName)}" data-ar="${attr(orgAr)}">${h(company.companyName)}</p>` : ''}
     </div>
     <div class="actions-section">
       <div class="rule"></div>
-      <a class="save" href="${attr(vcardUrl)}">${iconSvg(ICON.save)} Save Contact</a>
+      <a class="save" href="${attr(vcardUrl)}">${iconSvg(ICON.save)} <span data-en="${attr(UI_STRINGS.en.save)}" data-ar="${attr(UI_STRINGS.ar.save)}">${h(UI_STRINGS.en.save)}</span></a>
+      ${cardImageUrl ? `<a class="download" id="downloadCard" href="${attr(cardImageUrl)}?lang=en" download>${iconSvg(ICON.download)} <span data-en="${attr(UI_STRINGS.en.download)}" data-ar="${attr(UI_STRINGS.ar.download)}">${h(UI_STRINGS.en.download)}</span></a>` : ''}
       <div class="actions">${rows}</div>
-      ${employee.bio ? `<p class="bio">${h(employee.bio)}</p>` : ''}
+      ${employee.bio ? `<p class="bio" data-en="${attr(employee.bio)}" data-ar="${attr(bioAr)}">${h(employee.bio)}</p>` : ''}
     </div>
   </div>
-  <p class="foot">Tap &middot; Connect</p>
+  <p class="foot" data-en="${attr(UI_STRINGS.en.footer)}" data-ar="${attr(UI_STRINGS.ar.footer)}">${h(UI_STRINGS.en.footer)}</p>
 </main>
 <script nonce="${attr(nonce)}">
 (function(){
@@ -300,6 +345,31 @@ ${ogImage ? `<meta property="og:image" content="${h(ogImage)}">` : ''}
       }catch(e){}
     });
   });
+
+  /* EN/AR toggle — every translatable element carries data-en/data-ar
+     (Arabic already resolved server-side, never blank); this just swaps the
+     visible text and flips the document's reading direction. Default stays
+     English on every load, matching today's behaviour. */
+  var langSwitch=document.getElementById('langToggle');
+  var downloadLink=document.getElementById('downloadCard');
+  var cardImageBase=${JSON.stringify(cardImageUrl || '')};
+  function applyLang(lang){
+    document.documentElement.lang=lang;
+    document.documentElement.dir=lang==='ar'?'rtl':'ltr';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-en]'),function(el){
+      el.textContent=lang==='ar'?(el.getAttribute('data-ar')||el.getAttribute('data-en')):el.getAttribute('data-en');
+    });
+    if(langSwitch)langSwitch.setAttribute('data-active',lang);
+    // Keep the download link's language in sync with whatever is on screen —
+    // downloading should always match what the visitor is currently looking at.
+    if(downloadLink&&cardImageBase)downloadLink.href=cardImageBase+'?lang='+lang;
+  }
+  if(langSwitch){
+    langSwitch.addEventListener('click',function(e){
+      var btn=e.target.closest('[data-lang]');
+      if(btn)applyLang(btn.getAttribute('data-lang'));
+    });
+  }
 })();
 </script>
 </body></html>`;

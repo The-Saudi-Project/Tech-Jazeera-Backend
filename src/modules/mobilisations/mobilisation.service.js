@@ -107,6 +107,26 @@ export async function listCoordinatorCandidates() {
   return User.find({ role: 'Coordinator' }).select('name').sort({ name: 1 }).lean();
 }
 
+/** A worker may have at most one ACTIVE placement at a time — Draft/
+ *  PendingReview/Approved all count; Rejected/Completed don't (a rejected
+ *  one is dead until resubmitted, a completed one has already released the
+ *  worker back to standby). Names the existing coordinator/status in the
+ *  error so whoever hits this knows who to talk to. */
+async function assertNoActivePlacement(workerId) {
+  const existing = await Mobilisation.findOne({
+    worker: workerId,
+    status: { $in: ['Draft', 'PendingReview', 'Approved'] },
+  })
+    .populate('coordinators.user', 'name')
+    .lean();
+  if (!existing) return;
+  const primary = existing.coordinators.find((c) => c.isPrimary);
+  throw new ApiError(
+    409,
+    `This worker already has an active mobilisation (${existing.status}${primary ? `, coordinated by ${primary.user.name}` : ''}).`
+  );
+}
+
 export async function createMobilisation(data, actor) {
   const allowed =
     actor.role === 'Admin' ||
@@ -118,6 +138,7 @@ export async function createMobilisation(data, actor) {
 
   const employee = await Employee.findById(data.worker).lean();
   if (!employee) throw new ApiError(404, 'Employee not found.');
+  await assertNoActivePlacement(data.worker);
   const clientDoc = await Client.findById(data.client).lean();
   if (!clientDoc) throw new ApiError(404, 'Client not found.');
   const subcontractorSnapshot = await resolveSubcontractorSnapshot(data.hasSubcontractor, data.subcontractor);
@@ -131,12 +152,53 @@ export async function createMobilisation(data, actor) {
     createdBy: actor.userId,
   });
 
+  // Milestone 5: a real Coordinator primary claims the worker immediately —
+  // Employee.coordinator is now fully derived from Mobilisation state, not a
+  // manually-picked field. Admin and a self-mobilising role member (BDM/MM/
+  // etc, both legal creators per the `allowed` check above) are NOT real
+  // coordinators, so they leave it untouched (null, standby) — only a
+  // Coordinator-role primary ever claims one.
+  if (actor.role === 'Coordinator') {
+    await Employee.findByIdAndUpdate(data.worker, { coordinator: actor.userId });
+  }
+
   await logAudit({
     user: actor.userId,
     action: 'mobilisation.create',
     targetType: 'Mobilisation',
     targetId: mobilisation._id,
     meta: { workerName: mobilisation.workerName, clientName: mobilisation.clientName },
+    ip: actor.ip,
+  });
+  return mobilisation.toObject();
+}
+
+/** Approved → Completed — the terminal "placement has ended" state
+ *  (Milestone 5). Releases the worker back to standby (Employee.coordinator
+ *  → null) so any Coordinator can pick them up for a new Mobilisation.
+ *  Unconditional clear is safe: assertNoActivePlacement above guarantees at
+ *  most one Draft/PendingReview/Approved mobilisation exists per worker at a
+ *  time, so this one's coordinator IS whatever Employee.coordinator
+ *  currently holds (if anything — Admin/self-mobilised placements never set
+ *  it in the first place, making this a harmless no-op for those). */
+export async function completeMobilisation(id, actor) {
+  const mobilisation = await Mobilisation.findById(id);
+  if (!mobilisation) throw new ApiError(404, 'Mobilisation not found.');
+  if (mobilisation.status !== 'Approved') {
+    throw new ApiError(400, 'Only an Approved mobilisation can be marked complete.');
+  }
+  assertPrimaryOrAdmin(mobilisation, actor);
+
+  mobilisation.status = 'Completed';
+  await mobilisation.save();
+  await Employee.findByIdAndUpdate(mobilisation.worker, { coordinator: null });
+
+  await logAudit({
+    user: actor.userId,
+    action: 'mobilisation.complete',
+    targetType: 'Mobilisation',
+    targetId: mobilisation._id,
+    meta: { workerName: mobilisation.workerName },
     ip: actor.ip,
   });
   return mobilisation.toObject();
@@ -557,11 +619,12 @@ export async function decideMobilisation(id, { status, decisionNote }, actor) {
 // M5 — documents
 // ---------------------------------------------------------------------------
 
-/** Upload is blocked once Approved — the record is finalized; a document
- *  needed after that point is an Admin edit, not a routine attachment. */
+/** Upload is blocked once Approved or Completed — the record is finalized;
+ *  a document needed after that point is an Admin edit, not a routine
+ *  attachment. */
 function assertDocumentsEditable(mobilisation) {
-  if (mobilisation.status === 'Approved') {
-    throw new ApiError(400, 'Documents cannot be changed on an Approved mobilisation.');
+  if (['Approved', 'Completed'].includes(mobilisation.status)) {
+    throw new ApiError(400, 'Documents cannot be changed on an Approved or Completed mobilisation.');
   }
 }
 

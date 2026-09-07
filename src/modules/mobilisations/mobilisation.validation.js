@@ -65,7 +65,7 @@ export const updateMobilisationSchema = withSubcontractorRefine(z.object(mobilis
 export const listMobilisationsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  status: z.preprocess(emptyToUndef, z.enum(['Draft', 'PendingReview', 'Approved', 'Rejected']).optional()),
+  status: z.preprocess(emptyToUndef, z.enum(['Draft', 'PendingReview', 'Approved', 'Rejected', 'Completed']).optional()),
   client: z.preprocess(emptyToUndef, id('client').optional()),
   worker: z.preprocess(emptyToUndef, id('worker').optional()),
   search: optionalStr(100),

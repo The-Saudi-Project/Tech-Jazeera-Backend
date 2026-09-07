@@ -315,12 +315,15 @@ export async function getPublicCardByToken(token) {
     ref: { card: card._id, employee: e._id, company: c._id ?? null },
     employee: {
       name: e.name,
+      nameAr: e.nameAr ?? '',
       jobTitle: e.jobTitle ?? '',
+      jobTitleAr: e.jobTitleAr ?? '',
       phone: e.phone ?? '',
       whatsapp: e.whatsapp ?? '',
       email: e.email ?? '',
       linkedin: e.linkedin ?? '',
       bio: e.bio ?? '',
+      bioAr: e.bioAr ?? '',
     },
     company: {
       companyName: c.companyName ?? '',
