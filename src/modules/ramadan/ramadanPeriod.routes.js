@@ -1,11 +1,13 @@
 /**
- * RamadanPeriod routes (P3-E). Mirrors holiday.routes.js's exact role split:
- * read-open to any authenticated user, write gated to Admin/Manager/HR.
+ * RamadanPeriod routes (P3-E). Read-open to any authenticated user; write
+ * (create/update/delete, one circle — there was never a stricter delete-only
+ * tier here) is Section Access key 'ramadanManage', default ['Manager','HR']
+ * — matches today's Admin/Manager/HR circle exactly.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createRamadanPeriodSchema,
@@ -19,22 +21,24 @@ const router = Router();
 
 router.use(requireAuth);
 
+const canManageRamadan = requireSectionAccess('ramadanManage');
+
 router.get('/', validate({ query: listRamadanPeriodsSchema }), asyncHandler(ramadanPeriodController.list));
 router.post(
   '/',
-  requireRoles('Admin', 'Manager', 'HR'),
+  canManageRamadan,
   validate({ body: createRamadanPeriodSchema }),
   asyncHandler(ramadanPeriodController.create)
 );
 router.patch(
   '/:id',
-  requireRoles('Admin', 'Manager', 'HR'),
+  canManageRamadan,
   validate({ params: ramadanPeriodIdParamSchema, body: updateRamadanPeriodSchema }),
   asyncHandler(ramadanPeriodController.update)
 );
 router.delete(
   '/:id',
-  requireRoles('Admin', 'Manager', 'HR'),
+  canManageRamadan,
   validate({ params: ramadanPeriodIdParamSchema }),
   asyncHandler(ramadanPeriodController.remove)
 );

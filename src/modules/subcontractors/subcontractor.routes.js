@@ -2,13 +2,18 @@
  * Subcontractor routes.
  *
  * Role design: everyone staff may READ (Coordinators need it for the
- * mobilisation-create picker). WRITE/DELETE is Admin/Manager only, same
- * circle as Client.
+ * mobilisation-create picker). WRITE/DELETE is Section Access key
+ * 'subcontractorsManage', default ['Manager'] — matches today's
+ * Admin/Manager circle exactly. Delete is folded into the same key rather
+ * than kept separately hardcoded, since it was already the same tier as
+ * create/update here (no stricter delete-only circle to preserve as an
+ * extra safety rail) — same reasoning as EOSB's collapse.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createSubcontractorSchema,
@@ -23,7 +28,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff);
 
-const canWrite = requireRoles('Admin', 'Manager');
+const canWrite = requireSectionAccess('subcontractorsManage');
 
 router.get('/', validate({ query: listSubcontractorsSchema }), asyncHandler(subcontractorController.list));
 router.get('/:id', validate({ params: subcontractorIdParamSchema }), asyncHandler(subcontractorController.get));

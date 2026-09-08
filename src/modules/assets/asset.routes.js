@@ -1,11 +1,18 @@
 /**
  * Asset routes (P3-D). Staff-only module — a Worker's own assigned assets
  * are read through /api/me/assets instead (see the `me` module).
+ *
+ * Roles: create/update/status/assign/return is Section Access key
+ * 'assetsManage', default ['Manager','HR'] — matches today's
+ * Admin/Manager/HR circle exactly. Delete stays hardcoded Admin/HR only —
+ * a stricter, pre-existing circle that excludes Manager, kept as an extra
+ * safety rail on the single most destructive action.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createAssetSchema,
@@ -24,7 +31,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff);
 
-const canWrite = requireRoles('Admin', 'Manager', 'HR');
+const canWrite = requireSectionAccess('assetsManage');
 const canDelete = requireRoles('Admin', 'HR');
 
 router.get('/', validate({ query: listAssetsSchema }), asyncHandler(assetController.list));

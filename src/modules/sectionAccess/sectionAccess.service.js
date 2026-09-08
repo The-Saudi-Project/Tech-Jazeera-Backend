@@ -24,6 +24,40 @@ const DEFAULT_ALLOWED_ROLES = {
   companySettings: ['Manager'],
   mobilisationsViewer: [],
   mobilisationsSelfMobilise: ['Coordinator'],
+  invoices: ['Manager', 'Accounts'],
+  eosb: ['Manager', 'HR', 'Accounts'],
+  // Wider than the other whole-module defaults on purpose: DECIDE (the only
+  // action this key governs — see financialRequests.routes.js) sits in
+  // front of the shared approvalEngine's own per-step authority check,
+  // which can legitimately authorize ANY staff role (e.g. a Coordinator
+  // who is a real ApprovalRole member on a configured workflow step,
+  // exactly like the company's real Mobilisation hierarchy already does).
+  // A narrower floor here would silently block a workflow-authorized
+  // decider before the engine ever runs — so this matches the full
+  // original requireStaffOrExecutive floor exactly (Coordinator included),
+  // preserving zero regression; an Admin can still narrow it deliberately.
+  financialRequests: ['Manager', 'HR', 'Accounts', 'Coordinator', 'Executive'],
+  auditLog: [],
+  timesheetProcessor: [],
+  nfc: [],
+  clientsManage: ['Manager', 'Coordinator'],
+  deploymentsManage: ['Manager'],
+  subcontractorsManage: ['Manager'],
+  attendanceManage: ['Manager', 'HR'],
+  documentsManage: ['Manager', 'HR'],
+  assetsManage: ['Manager', 'HR'],
+  quotationsManage: ['Manager', 'Accounts'],
+  ramadanManage: ['Manager', 'HR'],
+  team: ['Manager', 'HR'],
+  approvalHierarchy: [],
+  // M7 (optional zero-regression floor migration): these three routers were
+  // already uniformly gated by requireStaffOrExecutive for EVERY action
+  // (list/submit/decide, no per-route carve-out needed, unlike
+  // financialRequests above) — so the default here matches that floor's
+  // full reach exactly, changing nothing until an Admin narrows it.
+  leaveRequests: ['Manager', 'HR', 'Accounts', 'Coordinator', 'Executive'],
+  timesheetRequests: ['Manager', 'HR', 'Accounts', 'Coordinator', 'Executive'],
+  exitDocuments: ['Manager', 'HR', 'Accounts', 'Coordinator', 'Executive'],
 };
 
 const SECTION_LABELS = {
@@ -33,6 +67,25 @@ const SECTION_LABELS = {
   companySettings: 'Company Settings',
   mobilisationsViewer: 'Mobilisations — full visibility',
   mobilisationsSelfMobilise: 'Mobilisations — self-mobilise',
+  invoices: 'Invoices',
+  eosb: 'EOSB / Settlements',
+  financialRequests: 'Financial Requests',
+  auditLog: 'Security Log',
+  timesheetProcessor: 'Timesheet Processor',
+  nfc: 'NFC Customers',
+  clientsManage: 'Clients — create/edit/decide',
+  deploymentsManage: 'Deployments — assign/transfer/end',
+  subcontractorsManage: 'Subcontractors — create/edit/delete',
+  attendanceManage: 'Attendance — bulk mark/adjust',
+  documentsManage: 'Documents — upload/version/delete',
+  assetsManage: 'Assets — create/edit/assign',
+  quotationsManage: 'Quotations — create/edit',
+  ramadanManage: 'Ramadan Periods — create/edit',
+  team: 'Team — view staff logins',
+  approvalHierarchy: 'Approval Hierarchy — edit roles & workflows',
+  leaveRequests: 'Leave requests — review queue',
+  timesheetRequests: 'Timesheet requests — review queue',
+  exitDocuments: 'Exit & Documents — review queue',
 };
 
 const SECTION_DESCRIPTIONS = {
@@ -44,6 +97,25 @@ const SECTION_DESCRIPTIONS = {
     'Read-only access to every mobilisation once submitted (not while still a Draft), including commercial fields.',
   mobilisationsSelfMobilise:
     'Can create a mobilisation directly as its own primary coordinator. Coordinator logins are granted this by default, but it can be changed here.',
+  invoices: 'Viewing and creating invoices, and recording payments against them. Deleting one stays Admin/Manager only.',
+  eosb: 'Computing and viewing End of Service settlements.',
+  financialRequests: 'Deciding a salary advance or reimbursement request. Viewing the queue and submitting a request stay open to any staff role, unchanged.',
+  auditLog: 'The auth & CRUD audit trail — who did what, and when.',
+  timesheetProcessor: 'Bulk-importing attendance-device exports.',
+  nfc: 'The NFC business-card program — companies, cards, and batches.',
+  clientsManage: 'Creating/editing a client, and deciding one a Coordinator submitted. Everyone can still read the list; deleting stays Admin/Manager only.',
+  deploymentsManage: 'Assigning, transferring, or ending a deployment. Everyone can still read the register.',
+  subcontractorsManage: 'Creating, editing, or deleting a subcontractor. Everyone can still read the list.',
+  attendanceManage: 'Bulk-marking or adjusting attendance records. Everyone can still read/export the register.',
+  documentsManage: 'Uploading, versioning, or deleting a document. Everyone can still read/download.',
+  assetsManage: 'Creating, editing, assigning or returning an asset. Everyone can still read the register; deleting stays Admin/HR only.',
+  quotationsManage: 'Creating, editing, or duplicating a quotation. Everyone can still read/PDF; deleting stays Admin/Manager only.',
+  ramadanManage: 'Creating, editing, or deleting a Ramadan overtime period. Everyone can still read the list.',
+  team: 'Viewing the staff login list. Editing a login, resetting its password, or deleting it stays Admin only — too sensitive to delegate broadly.',
+  approvalHierarchy: 'Creating or editing an approval role or workflow. Everyone can still read the list — many pages depend on it.',
+  leaveRequests: 'Viewing, submitting, and deciding leave requests. Optional — matches the existing wide-open default until narrowed.',
+  timesheetRequests: 'Viewing, submitting, deciding, and bulk-approving timesheets. Optional — matches the existing wide-open default until narrowed.',
+  exitDocuments: 'Viewing, submitting, and deciding exit re-entry visa and certificate requests. Optional — matches the existing wide-open default until narrowed.',
 };
 
 function defaultFor(sectionKey) {

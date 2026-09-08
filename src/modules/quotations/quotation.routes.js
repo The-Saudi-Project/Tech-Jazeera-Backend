@@ -2,13 +2,15 @@
  * Quotation routes.
  *
  * Roles: quotations are commercial documents. Read/PDF for any authenticated
- * user; create/update/duplicate for Admin/Manager/Accounts; delete for
- * Admin/Manager only.
+ * user; create/update/duplicate is Section Access key 'quotationsManage',
+ * default ['Manager','Accounts'] — matches today's circle exactly; delete
+ * stays hardcoded Admin/Manager only, an extra safety rail.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createQuotationSchema,
@@ -23,7 +25,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M2)
 
-const canWrite = requireRoles('Admin', 'Manager', 'Accounts');
+const canWrite = requireSectionAccess('quotationsManage');
 const canDelete = requireRoles('Admin', 'Manager');
 
 router.get('/', validate({ query: listQuotationsSchema }), asyncHandler(quotationController.list));
