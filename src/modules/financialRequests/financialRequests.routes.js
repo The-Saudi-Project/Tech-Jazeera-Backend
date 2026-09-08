@@ -4,29 +4,41 @@
  * review queue plus the actions staff perform (submit their OWN request,
  * decide, record a repayment, mark paid).
  *
- * Roles: the review queue (list) and decide are Admin/Manager/HR/Accounts
- * READ, Admin/Manager/HR/Accounts... see below — Coordinator was
- * deliberately excluded from ALL of this by the original design (money
- * matters kept in a narrower circle than Leave). The Approval Hierarchy's
- * staff self-submission (P2-M4+) reopens exactly two doors for Coordinator:
- * submitting their own request, and then seeing ONLY that request in the
- * list (see advance.service.js/reimbursement.service.js's Coordinator
- * self-scoping) — never the company-wide queue. Deciding is requireStaff
- * because the shared approvalEngine is the REAL gate once a workflow
- * governs a request (see approvalEngine.service.js); the legacy (no
- * workflow) path still enforces the original Admin/Manager/HR-only rule
- * itself. List/submit/decide use requireStaffOrExecutive so a GM/COO
- * Executive login can see the queue and decide their own workflow steps —
- * the engine re-checks real ApprovalRole membership regardless. Recording
- * money actually changing hands (a repayment, marking a claim paid) is
- * untouched — never part of "deciding," so it keeps its original
- * Admin/Manager/HR/Accounts-only gate (canHandleMoney), Executive excluded.
+ * Roles: only DECIDE (both advances and reimbursements) moves to Section
+ * Access key 'financialRequests', default
+ * ['Manager','HR','Accounts','Coordinator','Executive'] — deliberately the
+ * FULL original requireStaffOrExecutive floor, not narrowed. Deciding is
+ * really governed by the shared approvalEngine once a workflow governs a
+ * request (see approvalEngine.service.js's resolveStepAuthority), which can
+ * legitimately authorize ANY staff role — e.g. a Coordinator who is a real
+ * ApprovalRole member on a configured step, exactly like the company's real
+ * Mobilisation hierarchy already allows. A narrower Section Access default
+ * here would sit IN FRONT of that check and could silently block a
+ * workflow-authorized decider before the engine ever runs — this key exists
+ * so an Admin CAN narrow it deliberately, not so the rollout narrows it for
+ * them. The legacy (no workflow) path still enforces its own stricter
+ * Admin/Manager/HR-only rule (LEGACY_DECIDE_ROLES) independently, untouched.
+ *
+ * LIST and SUBMIT deliberately stay on requireStaffOrExecutive, UNCHANGED:
+ * Coordinator was excluded from the review queue by the original design
+ * (money matters kept in a narrower circle than Leave), but the Approval
+ * Hierarchy's staff self-submission (P2-M4+) reopens exactly two doors for
+ * Coordinator on these same two endpoints — submitting their own request,
+ * and then seeing ONLY that request in the list (see advance.service.js/
+ * reimbursement.service.js's Coordinator self-scoping) — never the
+ * company-wide queue.
+ *
+ * Recording money actually changing hands (a repayment, marking a claim
+ * paid) is untouched — never part of "deciding," so it keeps its original
+ * Admin/Manager/HR/Accounts-only gate (canHandleMoney), Executive excluded,
+ * deliberately NOT folded into 'financialRequests'.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
+import { requireRoles, requireStaffOrExecutive } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
 import {
@@ -49,6 +61,7 @@ const router = Router();
 
 router.use(requireAuth);
 
+const canDecideFinancialRequests = requireSectionAccess('financialRequests');
 const canHandleMoney = requireRoles('Admin', 'Manager', 'HR', 'Accounts');
 
 router.get(
@@ -65,7 +78,7 @@ router.post(
 );
 router.patch(
   '/advances/:id/decide',
-  requireStaffOrExecutive,
+  canDecideFinancialRequests,
   validate({ params: advanceIdParamSchema, body: decideAdvanceSchema }),
   asyncHandler(advanceController.decide)
 );
@@ -102,7 +115,7 @@ router.get(
 );
 router.patch(
   '/reimbursements/:id/decide',
-  requireStaffOrExecutive,
+  canDecideFinancialRequests,
   validate({ params: reimbursementIdParamSchema, body: decideReimbursementSchema }),
   asyncHandler(reimbursementController.decide)
 );

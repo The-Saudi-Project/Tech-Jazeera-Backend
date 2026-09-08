@@ -1,18 +1,22 @@
 /**
- * Approvals routes. WRITE (create/edit roles and workflows) is Admin-only —
- * the self-service hierarchy the company asked to define on their own.
- * READ (list) is open to any staff member: EmployeeForm's approval-workflow
- * override picker (Manager/HR/Coordinator, not just Admin) and every
- * request-decide screen's trail display need role/workflow NAMES, which
- * carry no sensitive data — same asymmetric-read pattern as LeaveType
- * (anyone authenticated reads, only Admin/Manager writes). Deciding a step
+ * Approvals routes. WRITE (create/edit roles and workflows) is Section
+ * Access key 'approvalHierarchy', default [] — matches today's Admin-only
+ * behavior exactly until an Admin grants someone else. READ (list) stays
+ * requireStaff, untouched: EmployeeForm's approval-workflow override picker
+ * (Manager/HR/Coordinator, not just Admin) and every request-decide
+ * screen's trail display need role/workflow NAMES, which carry no
+ * sensitive data — same asymmetric-read pattern as LeaveType (anyone
+ * authenticated reads, only the grant circle writes). Deciding a step
  * happens on each request module's own decide route (leave.routes.js etc.),
- * via the shared approvalEngine — this router owns configuration only.
+ * via the shared approvalEngine — this router owns configuration only. The
+ * Approval Log (`/log`) is untouched — already dynamically gated (Admin, or
+ * a real ApprovalRole member) inside the controller itself.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
+import { requireStaff, requireStaffOrExecutive } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createApprovalRoleSchema,
@@ -29,16 +33,18 @@ const router = Router();
 
 router.use(requireAuth);
 
+const canManageApprovalHierarchy = requireSectionAccess('approvalHierarchy');
+
 router.get('/roles', requireStaff, asyncHandler(approvalsController.listRoles));
 router.post(
   '/roles',
-  requireRoles('Admin'),
+  canManageApprovalHierarchy,
   validate({ body: createApprovalRoleSchema }),
   asyncHandler(approvalsController.createRole)
 );
 router.patch(
   '/roles/:id',
-  requireRoles('Admin'),
+  canManageApprovalHierarchy,
   validate({ params: approvalRoleIdParamSchema, body: updateApprovalRoleSchema }),
   asyncHandler(approvalsController.updateRole)
 );
@@ -46,13 +52,13 @@ router.patch(
 router.get('/workflows', requireStaff, asyncHandler(approvalsController.listWorkflows));
 router.post(
   '/workflows',
-  requireRoles('Admin'),
+  canManageApprovalHierarchy,
   validate({ body: createApprovalWorkflowSchema }),
   asyncHandler(approvalsController.createWorkflow)
 );
 router.patch(
   '/workflows/:id',
-  requireRoles('Admin'),
+  canManageApprovalHierarchy,
   validate({ params: approvalWorkflowIdParamSchema, body: updateApprovalWorkflowSchema }),
   asyncHandler(approvalsController.updateWorkflow)
 );

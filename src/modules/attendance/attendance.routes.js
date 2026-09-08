@@ -1,14 +1,16 @@
 /**
  * Attendance routes.
  *
- * Roles: marking is an operational/HR action (Admin, Manager, HR). Reading
- * and exporting are open to any authenticated user — Accounts needs the
- * summary for billing/payroll.
+ * Roles: marking (bulk/adjust) is Section Access key 'attendanceManage',
+ * default ['Manager','HR'] — matches today's Admin/Manager/HR circle
+ * exactly. Reading and exporting are open to any authenticated user —
+ * Accounts needs the summary for billing/payroll.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   markBulkSchema,
@@ -25,15 +27,17 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M2)
 
+const canManageAttendance = requireSectionAccess('attendanceManage');
+
 router.post(
   '/bulk',
-  requireRoles('Admin', 'Manager', 'HR'),
+  canManageAttendance,
   validate({ body: markBulkSchema }),
   asyncHandler(attendanceController.markBulk)
 );
 router.patch(
   '/adjust',
-  requireRoles('Admin', 'Manager', 'HR'),
+  canManageAttendance,
   validate({ body: adjustAttendanceSchema }),
   asyncHandler(attendanceController.adjust)
 );

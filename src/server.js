@@ -15,6 +15,20 @@ import app from './app.js';
 import { runExpiryAlertCheck } from './modules/notifications/expiryAlert.job.js';
 import { runMobilisationStaleCheck } from './modules/notifications/mobilisationStale.job.js';
 
+// Without these, a stray unhandled promise rejection or thrown error outside
+// Express's own request handling (e.g. inside a setInterval job's own bug,
+// not the .catch()-wrapped job runs below) can kill the process with zero
+// log of why — PM2 restarts it, but you'd never know what happened. Register
+// before connectDb() so a boot-time failure is caught too.
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled promise rejection: ${reason instanceof Error ? reason.stack : reason}`);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error(`Uncaught exception: ${error.stack || error}`);
+  process.exit(1);
+});
+
 try {
   await connectDb();
 } catch (err) {

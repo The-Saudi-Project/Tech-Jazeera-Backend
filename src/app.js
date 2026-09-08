@@ -19,7 +19,6 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import mongoose from 'mongoose';
 import env from './config/env.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
@@ -79,20 +78,14 @@ app.use(cookieParser()); // parses the httpOnly refresh-token cookie
 app.use('/api', apiLimiter);
 
 /**
- * GET /api/health — liveness check.
- * Response: 200 { success, message, data: { uptime, environment, database } }
- * Used by humans during setup and later by any uptime monitor. Reports the
- * Mongoose connection state so a dead DB is visible without reading logs.
+ * GET /api/health — liveness check, public and unauthenticated (an uptime
+ * monitor needs to reach it with no credentials). Deliberately minimal: it
+ * used to also report environment and live DB connection state, which is
+ * free reconnaissance for anyone on the internet and unnecessary for what
+ * an uptime monitor actually needs — a 200.
  */
 app.get('/api/health', (req, res) => {
-  const dbStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-  res.json(
-    new ApiResponse('OK', {
-      uptime: `${Math.floor(process.uptime())}s`,
-      environment: env.nodeEnv,
-      database: dbStates[mongoose.connection.readyState] ?? 'unknown',
-    })
-  );
+  res.json(new ApiResponse('OK', { status: 'up' }));
 });
 
 // Feature modules — each module mounts its own router.

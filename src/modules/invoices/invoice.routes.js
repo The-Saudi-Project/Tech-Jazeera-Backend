@@ -1,14 +1,18 @@
 /**
  * Invoice routes (P2-M6).
  *
- * Roles: invoices are commercial documents, same circle as quotations —
- * read/PDF for any authenticated staff; create/record-payment for
- * Admin/Manager/Accounts; delete for Admin/Manager only.
+ * Roles: invoices are financial documents — Section Access key 'invoices'
+ * governs everything below except delete (Admin/Manager only, an extra
+ * safety rail on the single most destructive action, same posture as
+ * Quotations/Clients — see sectionAccess.model.js's design notes). Read
+ * narrows from "any staff" to the 'invoices' circle now — a deliberate
+ * change per the financial-document classification, not an oversight.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createInvoiceSchema,
@@ -21,18 +25,16 @@ import * as invoiceController from './invoice.controller.js';
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireStaff);
+router.use(requireSectionAccess('invoices'));
 
-const canWrite = requireRoles('Admin', 'Manager', 'Accounts');
 const canDelete = requireRoles('Admin', 'Manager');
 
 router.get('/', validate({ query: listInvoicesSchema }), asyncHandler(invoiceController.list));
 router.get('/:id', validate({ params: invoiceIdParamSchema }), asyncHandler(invoiceController.get));
 router.get('/:id/pdf', validate({ params: invoiceIdParamSchema }), asyncHandler(invoiceController.pdf));
-router.post('/', canWrite, validate({ body: createInvoiceSchema }), asyncHandler(invoiceController.create));
+router.post('/', validate({ body: createInvoiceSchema }), asyncHandler(invoiceController.create));
 router.post(
   '/:id/payments',
-  canWrite,
   validate({ params: invoiceIdParamSchema, body: recordPaymentSchema }),
   asyncHandler(invoiceController.recordPayment)
 );

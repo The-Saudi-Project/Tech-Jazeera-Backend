@@ -1,11 +1,12 @@
 /**
- * NFC admin routes — the whole platform behind Admin auth. Separate from the
- * public tap routes (nfc.public.routes.js), which are unauthenticated.
+ * NFC admin routes — the whole platform behind Section Access key 'nfc',
+ * default [] (nobody but Admin, same as before). Separate from the public
+ * tap routes (nfc.public.routes.js), which are unauthenticated.
  */
 import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createCompanySchema,
@@ -25,7 +26,7 @@ import { uploadNfcImage } from './nfc.upload.js';
 import * as nfc from './nfc.controller.js';
 
 const router = Router();
-router.use(requireAuth, requireRoles('Admin'));
+router.use(requireAuth, requireSectionAccess('nfc'));
 
 // Analytics (see nfc.analytics.service.js). Mounted before the resource routes
 // so /analytics is never mistaken for an id.

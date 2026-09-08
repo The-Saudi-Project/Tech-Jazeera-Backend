@@ -2,8 +2,11 @@
  * Document routes.
  *
  * Roles: read/preview/download for any authenticated user (internal tool).
- * Upload and versioning = Admin/Manager/HR. Delete is the same circle
- * because it destroys files and history.
+ * Upload/versioning/delete is Section Access key 'documentsManage', default
+ * ['Manager','HR'] — matches today's Admin/Manager/HR circle exactly (there
+ * was never a stricter delete-only tier here to preserve separately, so
+ * delete folds into the same key rather than staying hardcoded — same
+ * reasoning as EOSB/Subcontractors).
  *
  * Upload flow order: uploadSingle (Multer streams the file to Cloudinary) →
  * validate the multipart text fields → controller. If validation or the
@@ -14,7 +17,8 @@ import { Router } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import logger from '../../config/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles, requireStaff } from '../../middleware/rbac.js';
+import { requireStaff } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import { uploadSingle, destroyDocumentFile } from '../../middleware/upload.js';
 import {
@@ -30,8 +34,8 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireStaff); // staff-only module; Workers use the ESS portal (P2-M2)
 
-const canWrite = requireRoles('Admin', 'Manager', 'HR');
-const canDelete = requireRoles('Admin', 'Manager', 'HR');
+const canWrite = requireSectionAccess('documentsManage');
+const canDelete = canWrite;
 
 router.get('/', validate({ query: listDocumentsSchema }), asyncHandler(documentController.list));
 router.get(

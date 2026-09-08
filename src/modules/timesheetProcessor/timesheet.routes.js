@@ -1,5 +1,6 @@
 /**
- * Timesheet Processor routes — an Admin-only internal tool.
+ * Timesheet Processor routes — an internal tool, Section Access key
+ * 'timesheetProcessor', default [] (nobody but Admin, same as before).
  *
  * The upload uses a module-local Multer with MEMORY storage (the file is parsed
  * and discarded, never persisted), deliberately separate from the document
@@ -11,7 +12,7 @@ import multer from 'multer';
 import asyncHandler from '../../utils/asyncHandler.js';
 import ApiError from '../../utils/ApiError.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireRoles } from '../../middleware/rbac.js';
+import { requireSectionAccess } from '../sectionAccess/sectionAccess.middleware.js';
 import { validate } from '../../middleware/validate.js';
 import { processTimesheetSchema } from './timesheet.validation.js';
 import * as timesheetController from './timesheet.controller.js';
@@ -19,8 +20,7 @@ import { XLSX_MIME, XLS_MIME, MAX_FILE_BYTES } from './timesheet.constants.js';
 
 const router = Router();
 
-// One operator: Admin only. requireRoles('Admin') also excludes Workers.
-router.use(requireAuth, requireRoles('Admin'));
+router.use(requireAuth, requireSectionAccess('timesheetProcessor'));
 
 const upload = multer({
   storage: multer.memoryStorage(),
